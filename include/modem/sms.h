@@ -40,6 +40,8 @@ enum sms_type {
  */
 #define SMS_MAX_PAYLOAD_LEN_CHARS 160
 
+#define SMS_MAX_PAYLOAD_LEN_8_BIT_DATA 140
+
 /**
  * @brief Maximum length of SMS address, i.e., phone number, in characters
  * as specified in 3GPP TS 23.040 Section 9.1.2.3.
@@ -206,6 +208,8 @@ void sms_unregister_listener(int handle);
  *         the error value with @c nrf_modem_at_err.
  */
 int sms_send_text(const char *number, const char *text);
+
+int sms_send_data(const char *number, const uint8_t *data, uint8_t data_len, const char *udh_str);
 
 /** @} */
 

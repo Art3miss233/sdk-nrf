@@ -23,9 +23,13 @@ LOG_MODULE_DECLARE(sms, CONFIG_SMS_LOG_LEVEL);
 /** @brief User Data Header size in septets. */
 #define SMS_UDH_CONCAT_SIZE_SEPTETS 7
 
-/** @brief Maximum length of SMS paylod for message part of concatenated SMS. */
+/** @brief Maximum length of SMS payload for message part of concatenated SMS. */
 #define SMS_MAX_CONCAT_PAYLOAD_LEN_CHARS \
 	(SMS_MAX_PAYLOAD_LEN_CHARS - SMS_UDH_CONCAT_SIZE_SEPTETS)
+
+/** @brief Maximum length of SMS data payload for message part of concatenated SMS. */
+#define SMS_MAX_CONCAT_PAYLOAD_LEN_DATA \
+	(SMS_MAX_PAYLOAD_LEN_8_BIT_DATA - SMS_UDH_CONCAT_SIZE_OCTETS)
 
 /**
  * @brief Encode phone number into format specified within SMS header.
@@ -130,6 +134,7 @@ static void sms_submit_print_error(int err)
  * @param[in] encoded_data_size_septets Encoded User-Data size in septets.
  * @param[in] message_ref TP-Message-Reference field in SMS-SUBMIT message.
  * @param[in] udh_str User Data Header. Can be set to NULL if not desired.
+ * @param[in] send_data Indicates if 8 bit alphabet should be used.
  */
 static int sms_submit_encode(
 	char *send_buf,
@@ -140,13 +145,17 @@ static int sms_submit_encode(
 	uint8_t encoded_data_size_octets,
 	uint8_t encoded_data_size_septets,
 	uint8_t message_ref,
-	char *udh_str)
+	const char *udh_str,
+	bool send_data)
 {
 	int err = 0;
 	int msg_size;
 	uint8_t sms_submit_header_byte;
 	uint8_t ud_start_index;
 	uint8_t udh_size = (udh_str == NULL) ? 0 : strlen(udh_str) / 2;
+
+	/* Set data coding scheme. If send_data is true, 8 bit data is used */
+	uint8_t TP_DCS = send_data ? 0x04 : 0x00;
 
 	/* Create and send CMGS AT command */
 	msg_size =
@@ -162,17 +171,20 @@ static int sms_submit_encode(
 	/* Set header byte. If User-Data-Header is added to SMS-SUBMIT, UDHI bit must be set */
 	sms_submit_header_byte = (udh_str == NULL) ? 0x21 : 0x61;
 
+	uint8_t encoded_size = send_data ? encoded_data_size_octets + udh_size : encoded_data_size_septets;
+
 	/* First, compose SMS header without User-Data so that we get an index for
 	 * User-Data-Header to be added later
 	 */
 	sprintf(send_buf,
-		"AT+CMGS=%d\r00%02X%02X%02X91%s0000%02X",
+		"AT+CMGS=%d\r00%02X%02X%02X91%s00%02X%02X",
 		msg_size,
 		sms_submit_header_byte,
 		message_ref,
 		encoded_number_size,
 		encoded_number,
-		encoded_data_size_septets);
+		TP_DCS,
+		encoded_size);
 	/* Store the position for User-Data */
 	ud_start_index = strlen(send_buf);
 
@@ -182,7 +194,7 @@ static int sms_submit_encode(
 	}
 
 	/* Then, add the actual user data by creating hexadecimal string
-	 * representation of GSM 7bit encoded text
+	 * representation of encoded text/data
 	 */
 	for (int i = 0; i < encoded_data_size_octets; i++) {
 		sprintf(send_buf + ud_start_index + (2 * i), "%02X", encoded[i]);
@@ -190,8 +202,8 @@ static int sms_submit_encode(
 	send_buf[ud_start_index + encoded_data_size_octets * 2] = '\x1a';
 	send_buf[ud_start_index + encoded_data_size_octets * 2 + 1] = '\0';
 
-	LOG_DBG("Sending encoded SMS data (length=%d):", msg_size);
-	LOG_DBG("%s", send_buf);
+	printk("Sending encoded SMS data (length=%d):\n", msg_size);
+	printk("%s\n", send_buf);
 
 	err = nrf_modem_at_printf(send_buf);
 	if (err) {
@@ -287,7 +299,8 @@ static int sms_submit_concat(
 				encoded_data_size_octets - SMS_UDH_CONCAT_SIZE_OCTETS,
 				encoded_data_size_septets,
 				message_ref,
-				udh_str);
+				udh_str,
+				false);
 
 			if (err) {
 				break;
@@ -371,7 +384,143 @@ int sms_submit_send(const char *number, const char *text)
 			encoded_data_size_octets,
 			encoded_data_size_septets,
 			0,
-			NULL);
+			NULL,
+			false);
+	}
+
+	return err;
+}
+
+static int sms_submit_concat_data(
+	const uint8_t *data,
+	uint8_t data_size,
+	uint8_t *encoded_number,
+	uint8_t encoded_number_size,
+	uint8_t encoded_number_size_octets,
+	bool send_at_cmds,
+	uint8_t *concat_msg_count,
+	const char *custom_udh_str)
+{
+	int err = 0;
+	uint8_t user_data[SMS_MAX_PAYLOAD_LEN_8_BIT_DATA];
+
+	uint8_t custom_udh_size = (custom_udh_str == NULL) ? 0 : strlen(custom_udh_str) / 2;
+	uint8_t udh_length = (custom_udh_str == NULL) ? 5 : custom_udh_size + 4;
+	char udh_str[SMS_MAX_PAYLOAD_LEN_8_BIT_DATA];
+
+	static uint8_t concat_msg_id = 1;
+	static uint8_t message_ref = 1;
+	uint8_t concat_seq_number = 0;
+
+	uint8_t data_encoded_size = 0;
+	int data_part_size;
+	uint8_t data_size_remaining = data_size;
+
+	/* More message parts are created until entire input text is encoded into messages */
+	while (data_size_remaining) {
+		concat_seq_number++;
+		memset(user_data, 0, SMS_UDH_CONCAT_SIZE_OCTETS + custom_udh_size);
+		data_part_size = MIN(data_size_remaining, SMS_MAX_CONCAT_PAYLOAD_LEN_DATA - custom_udh_size);
+		memcpy(user_data + SMS_UDH_CONCAT_SIZE_OCTETS + custom_udh_size, data, data_part_size);
+
+		/* User Data Header octets must be ignored from the text size and indexing */
+		data_encoded_size += data_part_size;
+		data_size_remaining -= data_part_size;
+		data += data_part_size;
+
+		if (send_at_cmds) {
+			sprintf(udh_str, "%02X0003%02X%02X%02X",
+				udh_length, concat_msg_id, *concat_msg_count, concat_seq_number);
+
+			if (custom_udh_size) {
+				sprintf(udh_str + strlen(udh_str), "%s", custom_udh_str+2);
+			}
+
+			err = sms_submit_encode(
+				sms_buf_tmp,
+				encoded_number,
+				encoded_number_size,
+				encoded_number_size_octets,
+				user_data + SMS_UDH_CONCAT_SIZE_OCTETS + custom_udh_size,
+				data_part_size,
+				data_part_size,
+				message_ref,
+				udh_str,
+				true);
+
+			if (err) {
+				break;
+			}
+
+			message_ref++;
+		}
+	}
+
+	if (send_at_cmds) {
+		concat_msg_id++;
+	} else {
+		*concat_msg_count = concat_seq_number;
+	}
+	return err;
+}
+
+int sms_submit_send_data(
+	const char *number,
+	const uint8_t *data,
+	const uint8_t data_len,
+	const char *udh_str)
+{
+	int err;
+	uint8_t encoded_number[SMS_MAX_ADDRESS_LEN_CHARS + 1];
+	uint8_t encoded_number_size;
+	uint8_t encoded_number_size_octets = SMS_MAX_ADDRESS_LEN_CHARS + 1;
+	uint8_t encoded_data_size_octets = data_len;
+	uint8_t concat_msg_count = 0;
+
+	if (number == NULL) {
+		LOG_ERR("SMS number not given but NULL");
+		return -EINVAL;
+	}
+
+	/* Encode number into format required in SMS header */
+	encoded_number_size = strlen(number);
+	err = sms_submit_encode_number(number, &encoded_number_size,
+		encoded_number, &encoded_number_size_octets);
+	if (err) {
+		return err;
+	}
+
+
+	/* Check if this should be sent as concatenated SMS */
+	if (data_len > SMS_MAX_PAYLOAD_LEN_8_BIT_DATA) {
+		LOG_DBG("Entire message doesn't fit into one SMS message. Using concatenated SMS.");
+
+		/* Encode messages to get number of message parts required to send given text */
+		err = sms_submit_concat_data(data, encoded_data_size_octets,
+			encoded_number, encoded_number_size, encoded_number_size_octets,
+			false, &concat_msg_count, udh_str);
+
+		/* Then, encode and send message parts */
+		err = sms_submit_concat_data(data, encoded_data_size_octets,
+			encoded_number, encoded_number_size, encoded_number_size_octets,
+			true, &concat_msg_count, udh_str);
+	} else {
+		uint8_t user_data[data_len + SMS_UDH_CONCAT_SIZE_OCTETS];
+		memset(user_data, 0, SMS_UDH_CONCAT_SIZE_OCTETS);
+		memcpy(user_data + SMS_UDH_CONCAT_SIZE_OCTETS, data, data_len);
+
+		/* Single message SMS */
+		err = sms_submit_encode(
+			sms_buf_tmp,
+			encoded_number,
+			encoded_number_size,
+			encoded_number_size_octets,
+			user_data + SMS_UDH_CONCAT_SIZE_OCTETS,
+			data_len,
+			data_len,
+			0,
+			udh_str,
+			true);
 	}
 
 	return err;

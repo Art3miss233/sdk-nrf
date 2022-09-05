@@ -50,6 +50,8 @@ static struct k_work sms_reregister_work;
 /* Reserving internal temporary buffers that are used for various functions requiring memory. */
 uint8_t sms_buf_tmp[SMS_BUF_TMP_LEN];
 uint8_t sms_payload_tmp[SMS_MAX_PAYLOAD_LEN_CHARS];
+uint8_t sms_payload_tmp_data[SMS_MAX_PAYLOAD_LEN_8_BIT_DATA];
+
 
 /**
  * @brief Indicates that the module has been successfully initialized
@@ -371,4 +373,8 @@ void sms_unregister_listener(int handle)
 int sms_send_text(const char *number, const char *text)
 {
 	return sms_submit_send(number, text);
+}
+
+int sms_send_data(const char *number, const uint8_t *data, const uint8_t data_len, const char *udh_str){
+	return sms_submit_send_data(number, data, data_len, udh_str);
 }
