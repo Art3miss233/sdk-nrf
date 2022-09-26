@@ -7,10 +7,14 @@
 #include <zephyr/kernel.h>
 #include <stdio.h>
 #include <modem/lte_lc.h>
+#include <modem/sms.h>
 #include <zephyr/net/socket.h>
+#include <string.h>
 
 #define UDP_IP_HEADER_SIZE 28
+#define SMS_SEND_NUMBER "580016538943"
 
+static struct pollfd client;
 static int client_fd;
 static struct sockaddr_storage host_addr;
 static struct k_work_delayable server_transmission_work;
@@ -28,14 +32,11 @@ static void server_transmission_work_fn(struct k_work *work)
 	       CONFIG_UDP_SERVER_ADDRESS_STATIC,
 	       CONFIG_UDP_SERVER_PORT);
 
-	err = send(client_fd, buffer, sizeof(buffer), 0);
+	err = send(client.fd, buffer, sizeof(buffer), 0);
 	if (err < 0) {
 		printk("Failed to transmit UDP packet, %d\n", errno);
 		return;
 	}
-
-	k_work_schedule(&server_transmission_work,
-			K_SECONDS(CONFIG_UDP_DATA_UPLOAD_FREQUENCY_SECONDS));
 }
 
 static void work_init(void)
@@ -89,46 +90,6 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 	}
 }
 
-static int configure_low_power(void)
-{
-	int err;
-
-#if defined(CONFIG_UDP_PSM_ENABLE)
-	/** Power Saving Mode */
-	err = lte_lc_psm_req(true);
-	if (err) {
-		printk("lte_lc_psm_req, error: %d\n", err);
-	}
-#else
-	err = lte_lc_psm_req(false);
-	if (err) {
-		printk("lte_lc_psm_req, error: %d\n", err);
-	}
-#endif
-
-#if defined(CONFIG_UDP_EDRX_ENABLE)
-	/** enhanced Discontinuous Reception */
-	err = lte_lc_edrx_req(true);
-	if (err) {
-		printk("lte_lc_edrx_req, error: %d\n", err);
-	}
-#else
-	err = lte_lc_edrx_req(false);
-	if (err) {
-		printk("lte_lc_edrx_req, error: %d\n", err);
-	}
-#endif
-
-#if defined(CONFIG_UDP_RAI_ENABLE)
-	/** Release Assistance Indication  */
-	err = lte_lc_rai_req(true);
-	if (err) {
-		printk("lte_lc_rai_req, error: %d\n", err);
-	}
-#endif
-
-	return err;
-}
 
 static void modem_init(void)
 {
@@ -164,7 +125,7 @@ static void modem_connect(void)
 
 static void server_disconnect(void)
 {
-	(void)close(client_fd);
+	(void)close(client.fd);
 }
 
 static int server_init(void)
@@ -177,11 +138,7 @@ static int server_init(void)
 	inet_pton(AF_INET, CONFIG_UDP_SERVER_ADDRESS_STATIC,
 		  &server4->sin_addr);
 
-	return 0;
-}
 
-static int server_connect(void)
-{
 	int err;
 
 	client_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -198,6 +155,8 @@ static int server_connect(void)
 		goto error;
 	}
 
+	client.events = POLLIN;
+
 	return 0;
 
 error:
@@ -206,28 +165,125 @@ error:
 	return err;
 }
 
+
+static void sms_callback(struct sms_data *const data, void *context)
+{
+	int err;
+
+	printk("Sms callback\n");
+	if (data == NULL) {
+		printk("%s with NULL data\n", __func__);
+		return;
+	}
+
+	if (data->type == SMS_TYPE_STATUS_REPORT) {
+		printk("SMS status report received\n");
+		return;
+	}
+
+	if (data->type != SMS_TYPE_DELIVER) {
+		printk("SMS protocol message with unknown type received\n");
+		return;
+	}
+
+
+	static int concat_msg_len = 0;
+	static uint8_t recv_buffer[1024];
+
+	if (data->header.deliver.concatenated.present) {
+		memcpy(&recv_buffer[concat_msg_len], data->payload, data->payload_len);
+		concat_msg_len += data->payload_len;
+
+		if (data->header.deliver.concatenated.seq_number ==
+			data->header.deliver.concatenated.total_msgs) {
+			printk("Sending udp concat packet: \n");
+			err = send(client_fd, recv_buffer, concat_msg_len, 0);
+
+			if (err < 0) {
+				printk("Failed to transmit UDP concat packet, %d\n", errno);
+				concat_msg_len = 0;
+				return;
+			}
+			printk("Sent %d/%d\n", err, concat_msg_len);
+			concat_msg_len = 0;
+		}
+	} else {
+		printk("Sending udp packet: \n");
+		err = send(client_fd, data->payload, data->payload_len, 0);
+
+		if (err < 0) {
+			printk("Failed to transmit UDP packet, %d\n", errno);
+			return;
+		}
+		printk("Sent %d/%d\n", err, data->payload_len);
+		// sms_send_data(SMS_SEND_NUMBER, data->payload, data->payload_len);
+		// k_work_schedule(&server_transmission_work, K_NO_WAIT);
+	}
+}
+
+static int sms_init(void)
+{
+	int handle = sms_register_listener(sms_callback, NULL);
+	if (handle) {
+		printk("sms_register_listener returned err: %d\n", handle);
+		return handle;
+	}
+	printk("Registered as sms listener\n");
+	return 0;
+}
+
+static int poll_in_handler(void)
+{
+	static uint8_t recv_buffer[1024];
+	printk("Starting recv at sockfd %d\n", client.fd);
+	int len = recv(client.fd, recv_buffer, sizeof(recv_buffer), 0);
+	printk("Ending recv\n");
+	if (len < 0) {
+		printk("Received failed\n");
+		return -ENOMSG;
+	}
+
+	return sms_send_data(SMS_SEND_NUMBER, recv_buffer, len);
+}
+
+static bool poll_succeed(void)
+{
+	printk("Starting poll\n");
+	int ret = poll(&client, 1, -1);
+	printk("Poll finished\n");
+
+	if (ret == 0) {
+		// Timeout
+		printk("Timeout\n");
+		return true;
+	} else if (ret < 0) {
+		printk("Error in poll\n");
+	}
+
+	if (client.revents & POLLERR) {
+		printk("Pollerr\n");
+	}
+
+	if (client.revents & POLLIN) {
+		ret = poll_in_handler();
+		if (ret < 0) {
+			printk("Failed to send sms\n");
+		}
+	}
+	printk("End of poll_succeed\n");
+	return true;
+}
+
 void main(void)
 {
 	int err;
 
-	printk("UDP sample has started\n");
+	printk("Gateway sample has started\n");
 
 	work_init();
 
 #if defined(CONFIG_NRF_MODEM_LIB)
-
-	/* Initialize the modem before calling configure_low_power(). This is
-	 * because the enabling of RAI is dependent on the
-	 * configured network mode which is set during modem initialization.
-	 */
 	modem_init();
-
-	err = configure_low_power();
-	if (err) {
-		printk("Unable to set low power configuration, error: %d\n",
-		       err);
-	}
-
 	modem_connect();
 
 	k_sem_take(&lte_connected, K_FOREVER);
@@ -236,14 +292,19 @@ void main(void)
 	err = server_init();
 	if (err) {
 		printk("Not able to initialize UDP server connection\n");
-		return;
+		goto err;
 	}
 
-	err = server_connect();
+	err = sms_init();
 	if (err) {
-		printk("Not able to connect to UDP server\n");
-		return;
+		printk("Not able to initialize sms listener");
+		goto err;
 	}
 
-	k_work_schedule(&server_transmission_work, K_NO_WAIT);
+	while (poll_succeed()) {
+
+	}
+	return;
+err:
+	while (true) {}
 }
