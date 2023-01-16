@@ -155,7 +155,11 @@ enum nrf_wifi_umac_commands {
 	NRF_WIFI_UMAC_CMD_CONFIG_TWT,
 	NRF_WIFI_UMAC_CMD_TEARDOWN_TWT,
 	NRF_WIFI_UMAC_CMD_ABORT_SCAN,
-	NRF_WIFI_UMAC_CMD_MCAST_FILTER
+	NRF_WIFI_UMAC_CMD_MCAST_FILTER,
+	NRF_WIFI_UMAC_CMD_CHANGE_MACADDR,
+	NRF_WIFI_UMAC_CMD_SET_POWER_SAVE_TIMEOUT,
+	NRF_WIFI_UMAC_CMD_GET_CONNECTION_INFO,
+	NRF_WIFI_UMAC_CMD_GET_POWER_SAVE_INFO
 };
 
 
@@ -254,7 +258,9 @@ enum nrf_wifi_umac_events {
 	NRF_WIFI_UMAC_EVENT_TEARDOWN_TWT,
 	NRF_WIFI_UMAC_EVENT_TWT_SLEEP,
 	NRF_WIFI_UMAC_EVENT_COALESCING,
-	NRF_WIFI_UMAC_EVENT_MCAST_FILTER
+	NRF_WIFI_UMAC_EVENT_MCAST_FILTER,
+	NRF_WIFI_UMAC_EVENT_GET_CONNECTION_INFO,
+	NRF_WIFI_UMAC_EVENT_GET_POWER_SAVE_INFO
 };
 #define	IMG_UMAC_EVENT_MCAST_FILTER 298
 /**
@@ -1376,21 +1382,51 @@ struct nrf_wifi_umac_event_scan_done {
 	unsigned int scan_type;
 } __NRF_WIFI_PKD;
 
-struct mcast_bssid {
-	unsigned char bssid[NRF_WIFI_ETH_ADDR_LEN];
-} __NRF_WIFI_PKD;
 
+#define MCAST_ADDR_ADD 0
+#define MCAST_ADDR_DEL 1
+
+/**
+ * struct nrf_wifi_umac_mcast_cfg - mcast related information.
+ *
+ * @type: Add (0) or Delete (1)
+ * @mac-addr: multicast address to be added/deleted.
+ */
 struct nrf_wifi_umac_mcast_cfg {
-	signed int count;
-	struct mcast_bssid  mcast_bssid[0];
+	unsigned int type;
+	unsigned char mac_addr[NRF_WIFI_ETH_ADDR_LEN];
 } __NRF_WIFI_PKD;
 
+/**
+ * struct nrf_wifi_umac_cmd_mcast_filter - set mcast address
+ *
+ * @umac_hdr: Refer to &struct nrf_wifi_umac_hdr.
+ * @info: Refer to &struct nrf_wifi_umac_mcast_cfg.
+ *
+ */
 struct nrf_wifi_umac_cmd_mcast_filter {
 	struct nrf_wifi_umac_hdr umac_hdr;
 	struct nrf_wifi_umac_mcast_cfg info;
 } __NRF_WIFI_PKD;
 
 
+/**
+ * struct nrf_wifi_umac_cmd_change_macaddr - Change MAC Address
+ *
+ *    - This has to be used only when the interface is down.
+ *
+ * @umac_hdr: Refer to &struct img_umac_hdr.
+ * @mac_addr : MAC address to be set
+ *
+ */
+struct nrf_wifi_umac_change_macaddr_info {
+	unsigned char mac_addr[NRF_WIFI_ETH_ADDR_LEN];
+} __NRF_WIFI_PKD;
+
+struct nrf_wifi_umac_cmd_change_macaddr {
+	struct nrf_wifi_umac_hdr umac_hdr;
+	struct nrf_wifi_umac_change_macaddr_info macaddr_info;
+} __NRF_WIFI_PKD;
 
 
 
@@ -2443,6 +2479,20 @@ struct nrf_wifi_umac_cmd_set_power_save {
 } __NRF_WIFI_PKD;
 
 /**
+ * struct nrf_wifi_umac_cmd_set_power_save_timeout - Set power save timeout.
+ * @umac_hdr: UMAC command header. Refer &struct nrf_wifi_umac_hdr.
+ * @timeout: Timeout value in milli seconds.
+ *     if timeout < 0 RPU will set timeout to 100ms.
+ *
+ * This structure represents the command to configure power save timeout value.
+ */
+
+struct nrf_wifi_umac_cmd_set_power_save_timeout {
+	struct nrf_wifi_umac_hdr umac_hdr;
+	signed int timeout;
+} __NRF_WIFI_PKD;
+
+/**
  * struct nrf_wifi_umac_qos_map_info - qos map info.
  * @qos_map_info_len: length of qos_map info field.
  * @qos_map_info: contains qos_map info as received from stack.
@@ -2593,6 +2643,7 @@ enum nrf_wifi_twt_setup_cmd_type {
  * @twt_target_wake_interval_mantissa: wake interval mantissa value
  * @target_wake_time: start of the waketime value after successful TWT negotiation
  * @nominal_min_twt_wake_duration: min TWT wake duration
+ * @dialog_token: dialog_token of twt frame.
  * This structure represents the command provides TWT information.
  */
 
@@ -2608,6 +2659,7 @@ struct nrf_wifi_umac_config_twt_info {
 	/*unsigned char target_wake_time[8];*/
 	unsigned long long target_wake_time;
 	unsigned short nominal_min_twt_wake_duration;
+	unsigned char dialog_token;
 } __NRF_WIFI_PKD;
 
 /**
@@ -2671,10 +2723,12 @@ struct nrf_wifi_umac_event_twt_sleep {
 	struct twt_sleep_info info;
 } __NRF_WIFI_PKD;
 
+#define UAPSD_Q_MIN 0
+#define UAPSD_Q_MAX 15
 /**
  * struct nrf_wifi_umac_uapsd_info - uaspd queues info
- * @uapsd_queue: uapsd queue value
- * This structure represents the command provides uapsd queue information.
+ * @uapsd_queue: UAPSD-Q value
+ * This structure represents the information about UAPSD-Q.
  */
 
 struct nrf_wifi_umac_uapsd_info {
@@ -2682,10 +2736,10 @@ struct nrf_wifi_umac_uapsd_info {
 } __NRF_WIFI_PKD;
 
 /**
- * struct nrf_wifi_umac_cmd_config_uapsd - config uapsd queues.
+ * struct nrf_wifi_umac_cmd_config_uapsd - Config UAPSD-Q..
  * @umac_hdr: UMAC command header. Refer &struct nrf_wifi_umac_hdr.
- * @info: refer to struct nrf_wifi_umac_uapsd_info
- * This structure represents the command provides uapsd queue configuration.
+ * @info: Refer &struct nrf_wifi_umac_uapsd_info
+ * This structure represents the command to configure UAPSD-Q value.
  */
 
 struct nrf_wifi_umac_cmd_config_uapsd {
@@ -2782,10 +2836,11 @@ struct nrf_wifi_umac_event_new_scan_results {
 	unsigned long long beacon_ies_tsf;
 	unsigned short beacon_interval;
 	unsigned short capability;
-	struct nrf_wifi_ie ies;
-	struct nrf_wifi_ie beacon_ies;
 	struct nrf_wifi_signal signal;
 	unsigned char mac_addr[NRF_WIFI_ETH_ADDR_LEN];
+	unsigned int    ies_len;
+	unsigned int    beacon_ies_len;
+	unsigned char   ies[0];
 } __NRF_WIFI_PKD;
 
 /**
@@ -2847,6 +2902,7 @@ struct nrf_wifi_umac_event_new_scan_display_results {
 #define NRF_WIFI_EVENT_MLME_RX_SIGNAL_DBM_VALID (1 << 4)
 #define NRF_WIFI_EVENT_MLME_WME_UAPSD_QUEUES_VALID (1 << 5)
 #define NRF_WIFI_EVENT_MLME_RXMGMT_FLAGS_VALID (1 << 6)
+#define NRF_WIFI_EVENT_MLME_IE_VALID   (1 << 7)
 #define NRF_WIFI_EVENT_MLME_TIMED_OUT (1 << 0)
 #define NRF_WIFI_EVENT_MLME_ACK (1 << 1)
 
@@ -2882,6 +2938,8 @@ struct nrf_wifi_umac_event_mlme {
 	struct nrf_wifi_frame frame;
 	unsigned char mac_addr[NRF_WIFI_ETH_ADDR_LEN];
 	unsigned char wme_uapsd_queues;
+	unsigned int req_ie_len;
+	unsigned char req_ie[0];
 } __NRF_WIFI_PKD;
 
 #define NRF_WIFI_EVENT_CONNECT_STATUS_CODE_VALID (1 << 0)
@@ -3106,6 +3164,33 @@ struct nrf_wifi_cmd_get_ifindex {
 	signed char ifacename[IFACENAMSIZ];
 } __NRF_WIFI_PKD;
 
+struct nrf_wifi_umac_cmd_conn_info {
+	struct nrf_wifi_umac_hdr umac_hdr;
+} __NRF_WIFI_PKD;
+
+struct nrf_wifi_umac_event_conn_info {
+	struct nrf_wifi_umac_hdr umac_hdr;
+	unsigned short beacon_interval;
+	unsigned char dtim_interval;
+} __NRF_WIFI_PKD;
+
+struct nrf_wifi_umac_cmd_get_power_save_info {
+	struct nrf_wifi_umac_hdr umac_hdr;
+} __NRF_WIFI_PKD;
+
+#define NRF_WIFI_MAX_TWT_FLOWS 8
+#define NRF_WIFI_PS_MODE_LEGACY 0
+#define NRF_WIFI_PS_MODE_WMM 1
+
+struct nrf_wifi_umac_event_power_save_info {
+	struct nrf_wifi_umac_hdr umac_hdr;
+	unsigned int ps_mode;
+	unsigned char enabled;
+	unsigned char twt_responder;
+	unsigned char num_twt_flows;
+	struct nrf_wifi_umac_config_twt_info twt_flow_info[0];
+} __NRF_WIFI_PKD;
+
 #define NRF_WIFI_TX_BITRATE_MASK_LEGACY_MAX_LEN 8
 #define NRF_WIFI_IEEE80211_HT_MCS_MASK_LEN 10
 #define NRF_WIFI_VHT_NSS_MAX 8
@@ -3195,10 +3280,11 @@ struct nrf_wifi_interface_info {
 
 struct nrf_wifi_event_mcs_info {
 #define NRF_WIFI_HT_MCS_MASK_LEN 10
+#define NRF_WIFI_HT_MCS_RES_LEN 3
 	unsigned short nrf_wifi_rx_highest;
 	unsigned char nrf_wifi_rx_mask[NRF_WIFI_HT_MCS_MASK_LEN];
 	unsigned char nrf_wifi_tx_params;
-	unsigned char nrf_wifi_reserved[3];
+	unsigned char nrf_wifi_reserved[NRF_WIFI_HT_MCS_RES_LEN];
 } __NRF_WIFI_PKD;
 
 struct nrf_wifi_event_sta_ht_cap {
@@ -3412,6 +3498,8 @@ struct nrf_wifi_cmd_req_set_reg {
 
 #define NRF_WIFI_CMD_REQ_SET_REG_ALPHA2_VALID (1 << 0)
 #define NRF_WIFI_CMD_REQ_SET_REG_USER_REG_HINT_TYPE_VALID (1 << 1)
+/* This bit in valid_fields indicates user settings are forced (1) or not (0) */
+#define NRF_WIFI_CMD_REQ_SET_REG_USER_REG_FORCE (1 << 2)
 	unsigned int valid_fields;
 	unsigned int nrf_wifi_user_reg_hint_type;
 	unsigned char nrf_wifi_alpha2[3];

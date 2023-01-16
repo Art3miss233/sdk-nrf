@@ -93,6 +93,11 @@ struct dm_result {
 
 			/** Best effort distance estimate. */
 			float best;
+
+#ifdef CONFIG_DM_HIGH_PRECISION_CALC
+			/* MCPD: Distance estimate based on advanced algorithms */
+			float high_precision;
+#endif
 		} mcpd;
 		struct rtt {
 			/** RTT: Distance estimate based on RTT measurement. */
@@ -128,14 +133,19 @@ struct dm_request {
 	/** Bluetooth LE device address. */
 	bt_addr_le_t bt_addr;
 
-	/** Access address used for packet exchanges. */
-	uint32_t access_address;
+	/** Seed used in pseudo random number generation.
+	 *  Needs to be the same for an initiator and a reflector that will range with each other.
+	 */
+	uint32_t rng_seed;
 
 	/** Ranging mode to use in the procedure. */
 	enum dm_ranging_mode ranging_mode;
 
 	/** Start delay. */
 	uint32_t start_delay_us;
+
+	/** Extra time to extend the ranging window. */
+	uint32_t extra_window_time_us;
 };
 
 /** @brief Initialize the DM.

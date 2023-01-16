@@ -16,7 +16,9 @@ endchoice
 
 config OPENTHREAD_LIBRARY_AVAILABLE
 	bool
-	# Switch to y when libraries for the current OpenThread revision are provided
+	# Switch:
+	# - To `y` when libraries for the current OpenThread revision are provided
+	# - To `n` on the next OpenThread upmerge
 	default n
 	depends on OPENTHREAD_THREAD_VERSION_1_3
 	depends on OPENTHREAD_NORDIC_LIBRARY_FTD || OPENTHREAD_NORDIC_LIBRARY_MTD
@@ -176,6 +178,10 @@ config OPENTHREAD_PLATFORM_CSL_UNCERT
 	int
 	default 5
 
+config IEEE802154_NRF5_DELAY_TRX_ACC
+	int
+	default 20
+
 if OPENTHREAD_CSL_RECEIVER
 
 config IEEE802154_CSL_ENDPOINT
@@ -194,5 +200,8 @@ config OPENTHREAD_CSL_MIN_RECEIVE_ON
 endif
 
 endif
+
+config OPENTHREAD_TCP_ENABLE
+	select EXPERIMENTAL
 
 endif

@@ -19,20 +19,20 @@
 #include "channel_assignment.h"
 
 #ifdef CONFIG_MCUMGR_CMD_OS_MGMT
-#include <os_mgmt/os_mgmt.h>
+#include <zephyr/mgmt/mcumgr/grp/os_mgmt/os_mgmt.h>
 #endif
 #ifdef CONFIG_MCUMGR_CMD_IMG_MGMT
-#include <img_mgmt/img_mgmt.h>
+#include <zephyr/mgmt/mcumgr/grp/img_mgmt/img_mgmt.h>
 #endif
 #ifdef CONFIG_MCUMGR_CMD_STAT_MGMT
-#include <stat_mgmt/stat_mgmt.h>
+#include <zephyr/mgmt/mcumgr/grp/stat_mgmt/stat_mgmt.h>
 #endif
 #ifdef CONFIG_MCUMGR_SMP_BT
-#include <zephyr/mgmt/mcumgr/smp_bt.h>
+#include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
 #endif
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(dfu, CONFIG_LOG_DFU_ENTRY_LEVEL);
+LOG_MODULE_REGISTER(dfu, CONFIG_MODULE_DFU_ENTRY_LOG_LEVEL);
 
 /* These defined name only used by DFU */
 #define DEVICE_NAME_DFU CONFIG_BT_DFU_DEVICE_NAME
@@ -85,7 +85,7 @@ static void dfu_connected_cb(struct bt_conn *conn, uint8_t err)
 
 static void dfu_disconnected_cb(struct bt_conn *conn, uint8_t reason)
 {
-	LOG_INF("SMP disconnected %d\n", reason);
+	LOG_INF("SMP disconnected 0x%02x\n", reason);
 }
 
 static struct bt_conn_cb dfu_conn_callbacks = {
@@ -102,7 +102,6 @@ static void dfu_set_bt_name(void)
 #if (CONFIG_AUDIO_DEV == GATEWAY)
 	strlcat(name, GW_TAG, CONFIG_BT_DEVICE_NAME_MAX);
 #else
-	int ret;
 	enum audio_channel channel;
 
 	channel_assignment_get(&channel);
@@ -136,7 +135,7 @@ void dfu_entry_check(void)
 	int ret;
 	bool pressed;
 
-	ret = button_pressed(BUTTON_TEST_TONE, &pressed);
+	ret = button_pressed(BUTTON_4, &pressed);
 	if (ret) {
 		return;
 	}

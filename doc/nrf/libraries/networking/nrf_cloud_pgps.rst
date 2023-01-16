@@ -86,6 +86,55 @@ The P-GPS library requires a storage location in the flash memory for storing th
 There are three ways to define this storage location:
 
 * To use a dedicated partition, enable the :kconfig:option:`CONFIG_NRF_CLOUD_PGPS_STORAGE_PARTITION` option.
+
+  By default, this partition is stored in the main SoC flash.
+  This partition can optionally be located in external flash for the nRF9160 development kit version 0.14.0 and later.
+  This conserves space in the main flash for storing code or other data.
+  Currently, you cannot combine storing P-GPS data in external flash with full modem FOTA.
+
+  To use an external flash partition, enable the following options in your project's configuration file or place them in a configuration overlay file (for example :file:`samples/nrf9160/nrf_cloud_mqtt_multi_service/overlay_pgps_ext_flash.conf`):
+
+* :kconfig:option:`CONFIG_SPI`
+* :kconfig:option:`CONFIG_SPI_NOR`
+* :kconfig:option:`CONFIG_PM_OVERRIDE_EXTERNAL_DRIVER_CHECK`
+* :kconfig:option:`CONFIG_NRF_CLOUD_PGPS_STORAGE_PARTITION`
+* :kconfig:option:`CONFIG_PM_PARTITION_REGION_PGPS_EXTERNAL`
+* :kconfig:option:`CONFIG_SPI_NOR_FLASH_LAYOUT_PAGE_SIZE` set to 4096
+
+  Also, specify your development kit version by appending it to the board name.
+  For example, if your development kit version is 1.0.1, use the following board name in your build command:
+
+  ``nrf9160dk_nrf9160_ns@1_0_1``
+
+  .. note::
+     If you fail to specify the version, the build system selects a baseline board version which does not include external flash.
+     This results in a build failure:
+
+     .. parsed-literal::
+        :class: highlight
+
+        devicetree error: /chosen: undefined node label 'mx25r64'
+
+  Finally, add the following to a device tree overlay for your board.
+
+::
+
+    / {
+      chosen {
+        nordic,pm-ext-flash = &mx25r64;
+      };
+    };
+
+    /* Enable high drive mode for the SPI3 pins to get a square signal at 8 MHz */
+    &spi3_default {
+      group1 {
+        nordic,drive-mode = <NRF_DRIVE_H0H1>;
+      };
+    };
+
+  This is typically placed in a file within your application's source folder in a :file:`boards` subfolder.
+  See an example provided in the file :file:`samples/nrf9160/nrf_cloud_mqtt_multi_service/boards/nrf9160dk_nrf9160_ns_0_14_0.overlay`.
+
 * To use the MCUboot secondary partition as storage, enable the :kconfig:option:`CONFIG_NRF_CLOUD_PGPS_STORAGE_MCUBOOT_SECONDARY` option.
 
   Use this option if the flash memory for your application is too full to use a dedicated partition, and the application uses MCUboot for FOTA updates but not for MCUboot itself.

@@ -123,6 +123,21 @@ config AUDIO_HEADSET_CHANNEL_COMPILE_TIME
 	  Set channel selection at compile-time.
 endchoice
 
+config AUDIO_TEST_TONE
+	bool "Test tone instead of doing user defined action"
+	default y
+	help
+	  Use button 4 to set a test tone
+	  instead of doing a user defined action.
+	  The test tone is generated on the device itself.
+
+config AUDIO_MUTE
+	bool "Mute instead of doing user defined action"
+	default y
+	help
+	  Use button 5 to mute audio instead of
+	  doing a user defined action.
+
 if AUDIO_HEADSET_CHANNEL_COMPILE_TIME
 
 config AUDIO_HEADSET_CHANNEL
@@ -176,7 +191,7 @@ config LC3_BITRATE_MIN
 	int "Min bitrate for LC3"
 	default 32000
 
-osource "../modules/lib/lc3/Kconfig"
+osource "../nrfxlib/lc3/Kconfig"
 
 endmenu # LC3
 endmenu # SW Codec
@@ -217,25 +232,25 @@ endmenu # Stream
 #----------------------------------------------------------------------------#
 menu "Log levels"
 
-config LOG_AUDIO_SYSTEM_LEVEL
-	int "Log level for audio system"
-	default 3
+module = AUDIO_SYSTEM
+module-str = audio-system
+source "subsys/logging/Kconfig.template.log_config"
 
-config LOG_SW_CODEC_SELECT_LEVEL
-	int "Log level for sw_codec_select"
-	default 3
+module = SW_CODEC_SELECT
+module-str = sw-codec-select
+source "subsys/logging/Kconfig.template.log_config"
 
-config LOG_STREAMCTRL_LEVEL
-	int "Log level for streamctrl"
-	default 3
+module = STREAMCTRL
+module-str = streamctrl
+source "subsys/logging/Kconfig.template.log_config"
 
-config LOG_AUDIO_DATAPATH_LEVEL
-	int "Log level for audio_datapath"
-	default 3
+module = AUDIO_DATAPATH
+module-str = audio-datapath
+source "subsys/logging/Kconfig.template.log_config"
 
-config LOG_AUDIO_SYNC_TIMER_LEVEL
-	int "Log level for audio_sync_timer"
-	default 2
+module = AUDIO_SYNC_TIMER
+module-str = audio-sync-timer
+source "subsys/logging/Kconfig.template.log_config"
 
 endmenu # Log levels
 
@@ -267,7 +282,7 @@ config ENCODER_STACK_SIZE
 config AUDIO_DATAPATH_STACK_SIZE
 	int "Stack size for audio datapath thread"
 	default 4096 if AUDIO_BIT_DEPTH_16
-	default 7168 if AUDIO_BIT_DEPTH_32
+	default 8192 if AUDIO_BIT_DEPTH_32
 
 endmenu # Stack sizes
 endmenu # Audio

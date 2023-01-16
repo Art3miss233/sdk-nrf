@@ -1,32 +1,30 @@
 .. _ug_matter_overview_network_topologies:
 
-Matter network overview
-#######################
+Matter network topology and concepts
+####################################
 
 .. contents::
    :local:
    :depth: 2
 
 Matter network can be composed of Ethernet, Wi-Fi, and Thread devices.
-Networks are joined together, which means that devices that belong to different network can talk to each other within the local Matter fabric (infrastructure).
-All communication is achieved over IPv6, although the Matter network is capable of running in the absence of IPv6 infrastructure connected to the Internet.
+Matter joins these devices together within the local Matter fabric (infrastructure), which allows devices to talk to each other using the same Matter application layer, despite using different network technologies underneath.
+All communication is achieved over IPv6, although the Matter network is capable of running in the absence of IPv6 infrastructure connected to the Internet, for example within a firewalled network.
 Bluetooth® LE can be used for commissioning of a Matter device to the Matter network.
 
 .. _ug_matter_network_topologies_structure:
 
-Matter network topologies
-*************************
-
-A Matter network can be made of one or more IPv6-based networks, for example Wi-Fi network or Thread network.
+Matter network topology
+***********************
 
 The Matter network topology refers to the structure of connections between Matter devices and IPv6 networks.
 Different IPv6 networks can communicate with each other through central hubs, for example Thread Border Router or Wi-Fi Access Point.
 
 Matter allows for connecting with external networks based on other protocols, such as Zigbee, through Matter bridges.
 
-The following figure illustrates a generic Matter topology example with two Thread Border Router devices, including one with an optional connection to cloud, and three Wi-Fi devices in the upper part of the figure acting as Matter bridges for other protocol devices.
+The following figure illustrates a generic Matter topology example with two Thread Border Router devices, including one with an optional connection to Internet, and three Wi-Fi devices in the upper part of the figure acting as Matter bridges for other protocol devices.
 
-.. figure:: images/matter_network_topologies.png
+.. figure:: images/matter_network_topologies.svg
    :alt: Matter topology example
 
    Matter topology example
@@ -42,7 +40,7 @@ Binding
   A feature that allows establishing a relationship between Matter endpoints on a single or two separate Matter nodes.
   The relationships are described by binding entries stored persistently in the device memory and managed by the Binding Cluster.
   Bindings are used to assign target or targets of a client cluster on the node, so that the device knows which remote device it should act upon.
-  The behavior induced by establishing a binding is application-defined and is not limited anyhow by the Matter specification, which opens the way for different custom scenarios.
+  The behavior induced by establishing a binding is application-defined and is not limited anyhow by the Matter Core Specification, which opens the way for different custom scenarios.
   For example, you can create a relationship in which a button press on light switch device results in changing the state of one or group of light bulb devices.
 
 Bridge
@@ -56,7 +54,7 @@ Controller
 
 Edge Router
   A network device used for ensuring interoperability of different IPv6 networks that are supported by Matter.
-  The main task of a Edge Router is coordinating cross-network communication.
+  The main task of an Edge Router is coordinating cross-network communication.
   Multiple Edge Routers can operate within a network to ensure no-single-point-of-failure approach.
   Examples of Edge Routers include Thread Border Router and Wi-Fi Access Point.
 

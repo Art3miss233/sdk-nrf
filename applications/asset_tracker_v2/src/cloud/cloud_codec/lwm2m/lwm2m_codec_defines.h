@@ -21,7 +21,8 @@
 /* Connectivity monitoring object RIDs. */
 #define NETWORK_BEARER_ID		0
 #define AVAIL_NETWORK_BEARER_ID		1
-#define RADIO_SIGNAL_STRENGTH		2
+/* Radio Signal Strength */
+#define RSS				2
 #define IP_ADDRESSES			4
 #define APN				7
 #define CELLID				8
@@ -41,7 +42,7 @@
 
 #define CONFIGURATION_OBJECT_ID			50009
 #define PASSIVE_MODE_RID			0
-#define GNSS_TIMEOUT_RID			1
+#define LOCATION_TIMEOUT_RID			1
 #define ACTIVE_WAIT_TIMEOUT_RID			2
 #define MOVEMENT_RESOLUTION_RID			3
 #define MOVEMENT_TIMEOUT_RID			4

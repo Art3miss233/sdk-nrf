@@ -396,9 +396,9 @@ You can build and program separate images or combined images using the |nRFVSC|.
 Separate images
 ---------------
 
-To build and program the application core, follow the instructions in `Building an application`_ and use ``nrf5340dk_nrf5340_cpuapp`` or ``nrf5340dk_nrf5340_cpuapp_ns`` as the build target.
+To build and program the application core, follow the instructions in `How to build an application`_ and use ``nrf5340dk_nrf5340_cpuapp`` or ``nrf5340dk_nrf5340_cpuapp_ns`` as the build target.
 
-To build and program the network core, follow the instructions in `Building an application`_ and use ``nrf5340dk_nrf5340_cpunet`` as the build target.
+To build and program the network core, follow the instructions in `How to build an application`_ and use ``nrf5340dk_nrf5340_cpunet`` as the build target.
 
 .. _ug_nrf5340_VSC_multi_image:
 
@@ -527,6 +527,14 @@ See the following instructions.
    :end-before: fota_upgrades_end
 
 .. include:: ug_nrf52_developing.rst
+   :start-after: fota_upgrades_bt_mesh_start
+   :end-before: fota_upgrades_bt_mesh_end
+
+.. note::
+   Point-to-point DFU over Bluetooth Low Energy is supported by default, out-of-the-box, for all samples and applications compatible with :ref:`zephyr:thingy53_nrf5340`.
+   See :ref:`thingy53_app_update` for more information about updating firmware image on :ref:`zephyr:thingy53_nrf5340`.
+
+.. include:: ug_nrf52_developing.rst
    :start-after: fota_upgrades_matter_start
    :end-before: fota_upgrades_matter_end
 
@@ -551,6 +559,12 @@ To enable the simultaneous update of multiple images in the MCUboot, set the fol
 * :kconfig:option:`CONFIG_BOOT_UPGRADE_ONLY` - The simultaneous update of multiple images does not support network core image reversion, so you need to disable application image reversion.
 * :kconfig:option:`CONFIG_PCD_APP` - Enable commands exchange with the network core.
 * :kconfig:option:`CONFIG_UPDATEABLE_IMAGE_NUMBER` - Enable support for multiple update partitions by setting this option to ``2``.
+
+.. note::
+
+   The application core can be reverted, but doing so bricks the network core upon revertion, as the reversion process fills the network core with the content currently in the RAM that pcd uses.
+   To enable this, define the ``USE_NRF53_MULTI_IMAGE_WITHOUT_UPGRADE_ONLY`` kconfig option in the project-level KConfig file.
+   When this is option is defined, you can enable it by setting :kconfig:option`CONFIG_USE_NRF53_MULTI_IMAGE_WITHOUT_UPGRADE_ONLY`.
 
 The :kconfig:option:`CONFIG_NRF53_MULTI_IMAGE_UPDATE` option selects this feature by default if these options and all its other dependencies are asserted.
 

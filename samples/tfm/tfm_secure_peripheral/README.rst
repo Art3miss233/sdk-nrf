@@ -146,7 +146,7 @@ The sample displays the following output in the console from the firmware in NSP
         SPP: send message: Success
         SPP: process signals: Success
 
-The sample displays the following output in the console from the firmware in NSPE:
+The sample displays the following output in the console from the firmware in SPE:
 
 .. code-block:: console
 
@@ -163,4 +163,4 @@ Dependencies
 
 This sample uses the TF-M module that can be found in the following location in the |NCS| folder structure:
 
-* ``modules/tee/tfm/``
+* :file:`modules/tee/tfm/`

@@ -19,7 +19,6 @@
 #include "button_assignments.h"
 #include "nrfx_clock.h"
 #include "ble_core.h"
-#include "power_module.h"
 #include "sd_card.h"
 #include "board_version.h"
 #include "audio_system.h"
@@ -31,7 +30,7 @@
 #endif
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(main, CONFIG_LOG_MAIN_LEVEL);
+LOG_MODULE_REGISTER(main, CONFIG_MAIN_LOG_LEVEL);
 
 #if defined(CONFIG_INIT_STACKS)
 /* Used for printing stack usage */
@@ -99,7 +98,7 @@ static int bonding_clear_check(void)
 	int ret;
 	bool pressed;
 
-	ret = button_pressed(BUTTON_MUTE, &pressed);
+	ret = button_pressed(BUTTON_5, &pressed);
 	if (ret) {
 		return ret;
 	}
@@ -193,9 +192,6 @@ void main(void)
 			ERR_CHK(ret);
 		}
 	}
-
-	ret = power_module_init();
-	ERR_CHK(ret);
 
 #if defined(CONFIG_AUDIO_DFU_ENABLE)
 	/* Check DFU BTN before Initialize BLE */

@@ -24,15 +24,16 @@
 #include <sdc_hci.h>
 #include <sdc_hci_vs.h>
 #include <mpsl/mpsl_work.h>
+#include <mpsl/mpsl_lib.h>
 
 #include "multithreading_lock.h"
 #include "hci_internal.h"
 #include "ecdh.h"
 #include "radio_nrf5_txp.h"
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME sdc_hci_driver
-#include "common/log.h"
+#define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
+#include "zephyr/logging/log.h"
+LOG_MODULE_REGISTER(bt_sdc_hci_driver);
 
 #if defined(CONFIG_BT_CONN)
 /* It should not be possible to set CONFIG_BT_CTLR_SDC_PERIPHERAL_COUNT larger than
@@ -66,7 +67,6 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_BT_PERIPHERAL) ||
 	#define SDC_ADV_SET_MEM_SIZE \
 		(SDC_ADV_SET_COUNT * SDC_MEM_PER_ADV_SET(SDC_ADV_BUF_SIZE))
 #else
-	#define SDC_ADV_SET_COUNT 0
 	#define SDC_ADV_SET_MEM_SIZE 0
 #endif
 
@@ -129,15 +129,22 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_BT_PERIPHERAL) ||
 
 #define PERIPHERAL_COUNT CONFIG_BT_CTLR_SDC_PERIPHERAL_COUNT
 
+#define SDC_EXTRA_MEMORY CONFIG_BT_SDC_ADDITIONAL_MEMORY
+
 #define MEMPOOL_SIZE ((PERIPHERAL_COUNT * PERIPHERAL_MEM_SIZE) + \
 		      (SDC_CENTRAL_COUNT * CENTRAL_MEM_SIZE) + \
 		      (SDC_ADV_SET_MEM_SIZE) + \
 		      (SDC_PERIODIC_ADV_MEM_SIZE) + \
 		      (SDC_PERIODIC_SYNC_MEM_SIZE) + \
 		      (SDC_PERIODIC_ADV_LIST_MEM_SIZE) + \
-		      (SDC_SCAN_BUF_SIZE))
+		      (SDC_SCAN_BUF_SIZE) + \
+		      (SDC_EXTRA_MEMORY))
 
+#if CONFIG_BT_SDC_ADDITIONAL_MEMORY
+uint8_t sdc_mempool[MEMPOOL_SIZE];
+#else
 static uint8_t sdc_mempool[MEMPOOL_SIZE];
+#endif
 
 #if IS_ENABLED(CONFIG_BT_CTLR_ASSERT_HANDLER)
 extern void bt_ctlr_assert_handle(char *file, uint32_t line);
@@ -150,7 +157,7 @@ void sdc_assertion_handler(const char *const file, const uint32_t line)
 #else /* !IS_ENABLED(CONFIG_BT_CTLR_ASSERT_HANDLER) */
 void sdc_assertion_handler(const char *const file, const uint32_t line)
 {
-	BT_ERR("SoftDevice Controller ASSERT: %s, %d", file, line);
+	LOG_ERR("SoftDevice Controller ASSERT: %s, %d", file, line);
 	k_oops();
 }
 #endif /* IS_ENABLED(CONFIG_BT_CTLR_ASSERT_HANDLER) */
@@ -163,7 +170,7 @@ static inline void receive_signal_raise(void)
 
 static int cmd_handle(struct net_buf *cmd)
 {
-	BT_DBG("");
+	LOG_DBG("");
 
 	int errcode = MULTITHREADING_LOCK_ACQUIRE();
 
@@ -183,7 +190,7 @@ static int cmd_handle(struct net_buf *cmd)
 #if defined(CONFIG_BT_CONN)
 static int acl_handle(struct net_buf *acl)
 {
-	BT_DBG("");
+	LOG_DBG("");
 
 	int errcode = MULTITHREADING_LOCK_ACQUIRE();
 
@@ -206,10 +213,10 @@ static int hci_driver_send(struct net_buf *buf)
 	int err;
 	uint8_t type;
 
-	BT_DBG("");
+	LOG_DBG("");
 
 	if (!buf->len) {
-		BT_DBG("Empty HCI packet");
+		LOG_DBG("Empty HCI packet");
 		return -EINVAL;
 	}
 
@@ -224,7 +231,7 @@ static int hci_driver_send(struct net_buf *buf)
 		err = cmd_handle(buf);
 		break;
 	default:
-		BT_DBG("Unknown HCI type %u", type);
+		LOG_DBG("Unknown HCI type %u", type);
 		return -EINVAL;
 	}
 
@@ -232,7 +239,7 @@ static int hci_driver_send(struct net_buf *buf)
 		net_buf_unref(buf);
 	}
 
-	BT_DBG("Exit: %d", err);
+	LOG_DBG("Exit: %d", err);
 	return err;
 }
 
@@ -244,7 +251,7 @@ static void data_packet_process(uint8_t *hci_buf)
 	uint8_t flags, pb, bc;
 
 	if (!data_buf) {
-		BT_ERR("No data buffer available");
+		LOG_ERR("No data buffer available");
 		return;
 	}
 
@@ -255,7 +262,7 @@ static void data_packet_process(uint8_t *hci_buf)
 	pb = bt_acl_flags_pb(flags);
 	bc = bt_acl_flags_bc(flags);
 
-	BT_DBG("Data: handle (0x%02x), PB(%01d), BC(%01d), len(%u)", handle,
+	LOG_DBG("Data: handle (0x%02x), PB(%01d), BC(%01d), len(%u)", handle,
 	       pb, bc, len);
 
 	net_buf_add_mem(data_buf, &hci_buf[0], len + sizeof(*hdr));
@@ -273,6 +280,17 @@ static bool event_packet_is_discardable(const uint8_t *hci_buf)
 		switch (me->subevent) {
 		case BT_HCI_EVT_LE_ADVERTISING_REPORT:
 			return true;
+#if defined(CONFIG_BT_EXT_ADV)
+		case BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT:
+		{
+			const struct bt_hci_evt_le_ext_advertising_report *ext_adv =
+				(void *)&hci_buf[3];
+
+			return (ext_adv->num_reports == 1) &&
+				   ((ext_adv->adv_info->evt_type &
+					 BT_HCI_LE_ADV_EVT_TYPE_LEGACY) != 0);
+		}
+#endif
 		default:
 			return false;
 		}
@@ -302,24 +320,24 @@ static void event_packet_process(uint8_t *hci_buf)
 	if (hdr->evt == BT_HCI_EVT_LE_META_EVENT) {
 		struct bt_hci_evt_le_meta_event *me = (void *)&hci_buf[2];
 
-		BT_DBG("LE Meta Event (0x%02x), len (%u)",
+		LOG_DBG("LE Meta Event (0x%02x), len (%u)",
 		       me->subevent, hdr->len);
 	} else if (hdr->evt == BT_HCI_EVT_CMD_COMPLETE) {
 		struct bt_hci_evt_cmd_complete *cc = (void *)&hci_buf[2];
 		struct bt_hci_evt_cc_status *ccs = (void *)&hci_buf[5];
 		uint16_t opcode = sys_le16_to_cpu(cc->opcode);
 
-		BT_DBG("Command Complete (0x%04x) status: 0x%02x,"
+		LOG_DBG("Command Complete (0x%04x) status: 0x%02x,"
 		       " ncmd: %u, len %u",
 		       opcode, ccs->status, cc->ncmd, hdr->len);
 	} else if (hdr->evt == BT_HCI_EVT_CMD_STATUS) {
 		struct bt_hci_evt_cmd_status *cs = (void *)&hci_buf[2];
 		uint16_t opcode = sys_le16_to_cpu(cs->opcode);
 
-		BT_DBG("Command Status (0x%04x) status: 0x%02x",
+		LOG_DBG("Command Status (0x%04x) status: 0x%02x",
 		       opcode, cs->status);
 	} else {
-		BT_DBG("Event (0x%02x) len %u", hdr->evt, hdr->len);
+		LOG_DBG("Event (0x%02x) len %u", hdr->evt, hdr->len);
 	}
 
 	evt_buf = bt_buf_get_evt(hdr->evt, discardable,
@@ -327,11 +345,11 @@ static void event_packet_process(uint8_t *hci_buf)
 
 	if (!evt_buf) {
 		if (discardable) {
-			BT_DBG("Discarding event");
+			LOG_DBG("Discarding event");
 			return;
 		}
 
-		BT_ERR("No event buffer available");
+		LOG_ERR("No event buffer available");
 		return;
 	}
 
@@ -359,8 +377,7 @@ static bool fetch_and_process_hci_msg(uint8_t *p_hci_buffer)
 	} else if (msg_type == SDC_HCI_MSG_TYPE_DATA) {
 		data_packet_process(p_hci_buffer);
 	} else {
-		__ASSERT(false, "sdc_hci_msg_type_t has changed. This if-else needs a new branch");
-		return false;
+		LOG_ERR("Unexpected msg_type: %u. This if-else needs a new branch", msg_type);
 	}
 
 	return true;
@@ -418,19 +435,19 @@ static int configure_supported_features(void)
 {
 	int err;
 
-	if (IS_ENABLED(CONFIG_BT_BROADCASTER)) {
-		if (IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT)) {
-			err = sdc_support_ext_adv();
-			if (err) {
-				return -ENOTSUP;
-			}
-		} else {
-			err = sdc_support_adv();
-			if (err) {
-				return -ENOTSUP;
-			}
+#if defined(CONFIG_BT_BROADCASTER)
+	if (IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT)) {
+		err = sdc_support_ext_adv();
+		if (err) {
+			return -ENOTSUP;
+		}
+	} else {
+		err = sdc_support_adv();
+		if (err) {
+			return -ENOTSUP;
 		}
 	}
+#endif
 
 	if (IS_ENABLED(CONFIG_BT_PER_ADV)) {
 		err = sdc_support_le_periodic_adv();
@@ -511,6 +528,38 @@ static int configure_supported_features(void)
 		}
 		if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
 			err = sdc_support_phy_update_peripheral();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
+	}
+
+	if (IS_ENABLED(CONFIG_BT_CTLR_SYNC_TRANSFER_SENDER)) {
+		if (IS_ENABLED(CONFIG_BT_CENTRAL)) {
+			err = sdc_support_periodic_adv_sync_transfer_sender_central();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
+
+		if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+			err = sdc_support_periodic_adv_sync_transfer_sender_peripheral();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
+	}
+
+	if (IS_ENABLED(CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER)) {
+		if (IS_ENABLED(CONFIG_BT_CENTRAL)) {
+			err = sdc_support_periodic_adv_sync_transfer_receiver_central();
+			if (err) {
+				return -ENOTSUP;
+			}
+		}
+
+		if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+			err = sdc_support_periodic_adv_sync_transfer_receiver_peripheral();
 			if (err) {
 				return -ENOTSUP;
 			}
@@ -637,6 +686,7 @@ static int configure_memory_usage(void)
 		return required_memory;
 	}
 
+#if defined(CONFIG_BT_BROADCASTER)
 	cfg.adv_count.count = SDC_ADV_SET_COUNT;
 
 	required_memory =
@@ -647,21 +697,20 @@ static int configure_memory_usage(void)
 		return required_memory;
 	}
 
-	if (IS_ENABLED(CONFIG_BT_BROADCASTER)) {
 #if defined(CONFIG_BT_CTLR_ADV_DATA_LEN_MAX)
-		cfg.adv_buffer_cfg.max_adv_data = CONFIG_BT_CTLR_ADV_DATA_LEN_MAX;
+	cfg.adv_buffer_cfg.max_adv_data = CONFIG_BT_CTLR_ADV_DATA_LEN_MAX;
 #else
-		cfg.adv_buffer_cfg.max_adv_data = SDC_DEFAULT_ADV_BUF_SIZE;
+	cfg.adv_buffer_cfg.max_adv_data = SDC_DEFAULT_ADV_BUF_SIZE;
 #endif
 
-		required_memory =
-		sdc_cfg_set(SDC_DEFAULT_RESOURCE_CFG_TAG,
-			    SDC_CFG_TYPE_ADV_BUFFER_CFG,
-			    &cfg);
-		if (required_memory < 0) {
-			return required_memory;
-		}
+	required_memory =
+	sdc_cfg_set(SDC_DEFAULT_RESOURCE_CFG_TAG,
+		    SDC_CFG_TYPE_ADV_BUFFER_CFG,
+		    &cfg);
+	if (required_memory < 0) {
+		return required_memory;
 	}
+#endif
 
 	if (IS_ENABLED(CONFIG_BT_PER_ADV)) {
 		cfg.periodic_adv_count.count = SDC_PERIODIC_ADV_COUNT;
@@ -717,11 +766,11 @@ static int configure_memory_usage(void)
 #endif
 	}
 
-	BT_DBG("BT mempool size: %u, required: %u",
+	LOG_DBG("BT mempool size: %u, required: %u",
 	       sizeof(sdc_mempool), required_memory);
 
 	if (required_memory > sizeof(sdc_mempool)) {
-		BT_ERR("Allocated memory too low: %u < %u",
+		LOG_ERR("Allocated memory too low: %u < %u",
 		       sizeof(sdc_mempool), required_memory);
 		k_panic();
 		/* No return from k_panic(). */
@@ -733,7 +782,9 @@ static int configure_memory_usage(void)
 
 static int hci_driver_open(void)
 {
-	BT_DBG("Open");
+	LOG_DBG("Open");
+
+	k_work_init(&receive_work, receive_work_handler);
 
 	if (IS_ENABLED(CONFIG_BT_CTLR_ECDH)) {
 		hci_ecdh_init();
@@ -747,18 +798,8 @@ static int hci_driver_open(void)
 
 	int err;
 
-	err = configure_supported_features();
-	if (err) {
-		return err;
-	}
-
-	err = configure_memory_usage();
-	if (err) {
-		return err;
-	}
-
 	if (!device_is_ready(entropy_source)) {
-		BT_ERR("Entropy source device not ready");
+		LOG_ERR("Entropy source device not ready");
 		return -ENODEV;
 	}
 
@@ -770,28 +811,73 @@ static int hci_driver_open(void)
 
 	err = sdc_rand_source_register(&rand_functions);
 	if (err) {
-		BT_ERR("Failed to register rand source (%d)", err);
+		LOG_ERR("Failed to register rand source (%d)", err);
 		return -EINVAL;
 	}
 
-	k_work_init(&receive_work, receive_work_handler);
-
 	err = MULTITHREADING_LOCK_ACQUIRE();
-	if (!err) {
-		err = sdc_enable(hci_driver_receive_process, sdc_mempool);
-		MULTITHREADING_LOCK_RELEASE();
-	}
-	if (err < 0) {
+	if (err) {
 		return err;
 	}
 
+	if (IS_ENABLED(CONFIG_BT_UNINIT_MPSL_ON_DISABLE)) {
+		if (!mpsl_is_initialized()) {
+			err = mpsl_lib_init();
+			if (err) {
+				MULTITHREADING_LOCK_RELEASE();
+				return err;
+			}
+		}
+	}
+
+	err = sdc_enable(receive_signal_raise, sdc_mempool);
+	if (err) {
+		MULTITHREADING_LOCK_RELEASE();
+		return err;
+	}
+
+	MULTITHREADING_LOCK_RELEASE();
+
 	return 0;
+}
+
+static int hci_driver_close(void)
+{
+	int err;
+
+	if (IS_ENABLED(CONFIG_BT_CTLR_ECDH)) {
+		hci_ecdh_uninit();
+	}
+
+	err = MULTITHREADING_LOCK_ACQUIRE();
+	if (err) {
+		return err;
+	}
+
+	err = sdc_disable();
+	if (err) {
+		MULTITHREADING_LOCK_RELEASE();
+		return err;
+	}
+
+	if (IS_ENABLED(CONFIG_BT_UNINIT_MPSL_ON_DISABLE)) {
+		err = mpsl_lib_uninit();
+		if (err) {
+			MULTITHREADING_LOCK_RELEASE();
+			return err;
+		}
+	}
+
+	MULTITHREADING_LOCK_RELEASE();
+
+	return err;
 }
 
 static const struct bt_hci_driver drv = {
 	.name = "SoftDevice Controller",
 	.bus = BT_HCI_DRIVER_BUS_VIRTUAL,
 	.open = hci_driver_open,
+	.close = hci_driver_close,
 	.send = hci_driver_send,
 };
 
@@ -852,6 +938,17 @@ static int hci_driver_init(const struct device *unused)
 	bt_hci_driver_register(&drv);
 
 	err = sdc_init(sdc_assertion_handler);
+
+	err = configure_supported_features();
+	if (err) {
+		return err;
+	}
+
+	err = configure_memory_usage();
+	if (err) {
+		return err;
+	}
+
 	return err;
 }
 

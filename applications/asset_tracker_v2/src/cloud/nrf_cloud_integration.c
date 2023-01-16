@@ -49,7 +49,7 @@ static cloud_wrap_evt_handler_t wrapper_evt_handler;
 #if defined(CONFIG_NRF_CLOUD_FOTA_FULL_MODEM_UPDATE)
 /* Full modem FOTA requires external flash to hold the full modem image.
  * Below is the external flash device present on the nRF9160 DK version
- * 1.0.1 and higher.
+ * 0.14.0 and higher.
  */
 static struct dfu_target_fmfu_fdev ext_flash_dev = {
 	.size = 0,
@@ -129,7 +129,7 @@ static int send_service_info(void)
 		.modem_full = nrf_cloud_fota_is_type_enabled(NRF_CLOUD_FOTA_MODEM_FULL)
 	};
 	struct nrf_cloud_svc_info_ui ui_info = {
-		.gps = true,
+		.gnss = true,
 #if defined(CONFIG_BOARD_THINGY91_NRF9160_NS)
 		.humidity = true,
 		.air_pressure = true,
@@ -233,8 +233,8 @@ static void nrf_cloud_event_handler(const struct nrf_cloud_evt *evt)
 		cloud_wrap_evt.data.len = evt->data.len;
 		notify = true;
 		break;
-	case NRF_CLOUD_EVT_RX_DATA_CELL_POS:
-		LOG_DBG("NRF_CLOUD_EVT_RX_DATA_CELL_POS");
+	case NRF_CLOUD_EVT_RX_DATA_LOCATION:
+		LOG_DBG("NRF_CLOUD_EVT_RX_DATA_LOCATION");
 		break;
 	case NRF_CLOUD_EVT_USER_ASSOCIATION_REQUEST:
 		LOG_WRN("NRF_CLOUD_EVT_USER_ASSOCIATION_REQUEST");
@@ -438,6 +438,28 @@ int cloud_wrap_neighbor_cells_send(char *buf, size_t len, bool ack, uint32_t id)
 
 	return 0;
 }
+
+#if defined(CONFIG_LOCATION_METHOD_WIFI)
+int cloud_wrap_wifi_access_points_send(char *buf, size_t len, bool ack, uint32_t id)
+{
+	int err;
+	struct nrf_cloud_tx_data msg = {
+		.data.ptr = buf,
+		.data.len = len,
+		.id = id,
+		.qos = ack ? MQTT_QOS_1_AT_LEAST_ONCE : MQTT_QOS_0_AT_MOST_ONCE,
+		.topic_type = NRF_CLOUD_TOPIC_MESSAGE,
+	};
+
+	err = nrf_cloud_send(&msg);
+	if (err) {
+		LOG_ERR("nrf_cloud_send, error: %d", err);
+		return err;
+	}
+
+	return 0;
+}
+#endif
 
 int cloud_wrap_state_get(bool ack, uint32_t id)
 {

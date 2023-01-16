@@ -38,17 +38,23 @@ Currently, the following configurations are supported:
 
 
 To build for the nRF7002 DK, use the ``nrf7002dk_nrf5340_cpuapp`` build target.
-The following is an example of the CLI command::
+The following is an example of the CLI command:
+
+.. code-block:: console
 
    west build -b nrf7002dk_nrf5340_cpuapp
 
 To build for the nRF7002 EK, use the ``nrf7002dk_nrf5340_cpuapp`` build target with the ``SHIELD`` CMake option set to ``nrf7002_ek``.
-The following is an example of the CLI command::
+The following is an example of the CLI command:
+
+.. code-block:: console
 
    west build -b nrf5340dk_nrf5340_cpuapp -- -DSHIELD=nrf7002_ek
 
 To build for the nRF9160 DK, use the ``nrf9160dk_nrf9160_ns`` build target with the ``SHIELD`` CMake option set to ``nrf7002_ek`` and scan-only overlay configuration.
-The following is an example of the CLI command::
+The following is an example of the CLI command:
+
+.. code-block:: console
 
    west build -b nrf9160dk_nrf9160_ns -- -DOVERLAY_CONFIG=overlay-scan-only.conf -DSHIELD=nrf7002_ek
 
@@ -83,6 +89,26 @@ Supported CLI commands
      - Configure the Wi-Fi interface as access point mode
    * - ap_disable
      - Configure the Wi-Fi interface as station mode
+   * - ps
+     - | Configure power save
+       | No argument - Prints current configuration
+       | on - Turns on power save feature
+       | off - Turns off power save feature
+   * - twt
+     - | Manage Target Wake Time (TWT) flows with below subcommands:
+       |
+       | setup - Start a TWT flow:
+       | <negotiation_type: 0 - Individual, 1 - Broadcast, 2 - Wake TBTT>
+       | <setup_cmd: 0 - Request, 1 - Suggest, 2 - Demand>
+       | <dialog_token> <flow_id> <responder> <trigger> <implicit>
+       | <announce> <twt_wake_interval_ms> <twt_interval_ms>
+       |
+       | teardown - Teardown a TWT flow:
+       | <negotiation_type: 0 - Individual, 1 - Broadcast, 2 - Wake TBTT>
+       | <setup_cmd: 0 - Request, 1 - Suggest, 2 - Demand>
+       | <dialog_token> <flow_id>
+       |
+       | teardown_all - Teardown all TWT flows
 
 Testing
 =======

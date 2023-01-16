@@ -10,7 +10,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/net/lwm2m.h>
-#include <lwm2m_resource_ids.h>
 #include <modem/lte_lc.h>
 #include <net/lwm2m_client_utils.h>
 
@@ -183,7 +182,6 @@ static uint8_t edrx_nbs1;
 static uint8_t active_psm_modes;
 #if defined(CONFIG_LWM2M_CELL_CONN_OBJ_VERSION_1_1)
 static uint8_t supported_psm_modes = PSM_AND_EDRX_MODE;
-static char rai_param[2] = CONFIG_LTE_RAI_REQ_VALUE;
 static uint8_t rai_usage;
 #endif
 static struct k_work radio_period_work;
@@ -194,17 +192,29 @@ static enum lte_lc_lte_mode lte_mode = LTE_LC_LTE_MODE_NONE;
 
 static void radio_period_update(struct k_work *work)
 {
+	int err;
+
 	LOG_DBG("Set radio online");
 	disable_radio_period_tmp = 0;
 	lwm2m_engine_set_u16("10/0/1", disable_radio_period_tmp);
-	lte_lc_func_mode_set(LTE_LC_FUNC_MODE_NORMAL);
+
+	err = lte_lc_func_mode_set(LTE_LC_FUNC_MODE_NORMAL);
+	if (err) {
+		LOG_ERR("Unable to set modem online, error %d", err);
+	}
 }
 
 static void set_radio_offline(struct k_work *work)
 {
+	int err;
+
 	k_sleep(K_MSEC(200));
 	LOG_DBG("Set radio offline");
-	lte_lc_func_mode_set(LTE_LC_FUNC_MODE_OFFLINE);
+
+	err = lte_lc_func_mode_set(LTE_LC_FUNC_MODE_OFFLINE);
+	if (err) {
+		LOG_ERR("Unable to set modem offline, error %d", err);
+	}
 }
 
 static void radio_period_timer_fn(struct k_timer *dummy)
@@ -416,8 +426,13 @@ static uint8_t get_edrx_kconfig(enum lte_lc_lte_mode lte_mode)
 {
 	char str[9] = "";
 
-	sprintf(str, CONFIG_LTE_PTW_VALUE_LTE_M);
-	sprintf(str + strlen(str), CONFIG_LTE_EDRX_REQ_VALUE_LTE_M);
+	if (lte_mode == LTE_LC_LTE_MODE_LTEM) {
+		sprintf(str, CONFIG_LTE_PTW_VALUE_LTE_M);
+		sprintf(str + strlen(str), CONFIG_LTE_EDRX_REQ_VALUE_LTE_M);
+	} else {
+		sprintf(str, CONFIG_LTE_PTW_VALUE_NBIOT);
+		sprintf(str + strlen(str), CONFIG_LTE_EDRX_REQ_VALUE_NBIOT);
+	}
 	LOG_DBG("EDRX string: %s", str);
 
 	return strtol(str, NULL, 2);
@@ -451,12 +466,10 @@ static uint8_t get_rai_kconfig(void)
 {
 	uint8_t ret = 0;
 
-	if (rai_param[0] == '4') {
-		ret = 2; /* no response, set 2nd LSB */
-	} else if (rai_param[0] == '3') {
-		ret = 6; /* one response, set 2nd and 3rd LSB */
+	if (IS_ENABLED(CONFIG_LWM2M_CLIENT_UTILS_RAI)) {
+		ret = 2; /* RAI used when transmitting last message. No response required */
 	} else {
-		ret = 1;
+		ret = 1; /* RAI not used */
 	}
 
 	return ret;
@@ -466,21 +479,20 @@ static int rai_update_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_ins
 			 uint16_t data_len, bool last_block, size_t total_size)
 {
 	int err = 0;
-	bool rai_enabled = false;
 
 	LOG_DBG("RAI value: %d", *data);
 
 	switch (*data & 7U) {
 	case 1:
+		err = lwm2m_rai_req(LWM2M_RAI_MODE_DISABLED);
 		break;
 	case 2:
-		rai_enabled = true;
-		err = lte_lc_rai_param_set("4");
+		err = lwm2m_rai_req(LWM2M_RAI_MODE_ENABLED);
 		break;
 	case 6:
-		rai_enabled = true;
-		err = lte_lc_rai_param_set("3");
-		break;
+		LOG_WRN("Unsupported RAI mode");
+		return -ENOTSUP;
+		;
 	default:
 		LOG_ERR("Invalid RAI param");
 		return -EINVAL;
@@ -488,13 +500,7 @@ static int rai_update_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_ins
 	}
 
 	if (err) {
-		LOG_ERR("RAI set error %d", err);
-		return err;
-	}
-
-	err = lte_lc_rai_req(rai_enabled);
-	if (err) {
-		LOG_ERR("RAI req error %d", err);
+		LOG_ERR("RAI request error %d", err);
 		return err;
 	}
 
@@ -659,6 +665,7 @@ int lwm2m_init_cellular_connectivity_object(void)
 	lwm2m_engine_set_res_buf("10/0/8", &edrx_wbs1, sizeof(edrx_wbs1), sizeof(edrx_wbs1),
 				 LWM2M_RES_DATA_FLAG_RW);
 	lwm2m_engine_register_post_write_callback("10/0/8", edrx_update_cb);
+	edrx_nbs1 = get_edrx_kconfig(LTE_LC_LTE_MODE_NBIOT);
 	lwm2m_engine_set_res_buf("10/0/9", &edrx_nbs1, sizeof(edrx_nbs1), sizeof(edrx_nbs1),
 				 LWM2M_RES_DATA_FLAG_RW);
 	lwm2m_engine_register_post_write_callback("10/0/9", edrx_update_cb);

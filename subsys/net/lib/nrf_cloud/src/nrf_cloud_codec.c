@@ -7,12 +7,14 @@
 #include "nrf_cloud_codec.h"
 #include "nrf_cloud_mem.h"
 #include "nrf_cloud_fsm.h"
+#include <net/nrf_cloud_location.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
 #include <modem/modem_info.h>
 #include "cJSON_os.h"
@@ -32,7 +34,7 @@ static gateway_state_handler_t gateway_state_handler;
 #endif
 
 static const char *const sensor_type_str[] = {
-	[NRF_CLOUD_SENSOR_GPS] = NRF_CLOUD_JSON_APPID_VAL_GPS,
+	[NRF_CLOUD_SENSOR_GNSS] = NRF_CLOUD_JSON_APPID_VAL_GNSS,
 	[NRF_CLOUD_SENSOR_FLIP] = NRF_CLOUD_JSON_APPID_VAL_FLIP,
 	[NRF_CLOUD_SENSOR_BUTTON] = NRF_CLOUD_JSON_APPID_VAL_BTN,
 	[NRF_CLOUD_SENSOR_TEMP] = NRF_CLOUD_JSON_APPID_VAL_TEMP,
@@ -76,15 +78,15 @@ static const char *const sensor_type_str[] = {
 #define STRLEN_TOPIC_VAL_C2D	(sizeof(TOPIC_VAL_C2D) - 1)
 #define TOPIC_VAL_AGPS		"/agps"
 #define TOPIC_VAL_PGPS		"/pgps"
-#define TOPIC_VAL_CELL_POS	"/cell_pos"
+#define TOPIC_VAL_GND_FIX	"/ground_fix"
 #define TOPIC_VAL_RCV		"/r"
 #define TOPIC_VAL_WILDCARD	"/+"
 
 #define TOPIC_VAL_RCV_WILDCARD	(TOPIC_VAL_WILDCARD TOPIC_VAL_RCV)
 #define TOPIC_VAL_RCV_AGPS	(TOPIC_VAL_AGPS	    TOPIC_VAL_RCV)
 #define TOPIC_VAL_RCV_PGPS	(TOPIC_VAL_PGPS	    TOPIC_VAL_RCV)
-#define TOPIC_VAL_RCV_CELL_POS	(TOPIC_VAL_CELL_POS TOPIC_VAL_RCV)
 #define TOPIC_VAL_RCV_C2D	(TOPIC_VAL_C2D	    TOPIC_VAL_RCV)
+#define TOPIC_VAL_RCV_GND_FIX	(TOPIC_VAL_GND_FIX  TOPIC_VAL_RCV)
 
 int nrf_cloud_codec_init(struct nrf_cloud_os_mem_hooks *hooks)
 {
@@ -201,7 +203,7 @@ static int json_format_modem_info_data_obj(cJSON *const data_obj,
 		modem_info->network.area_code.value) ||
 	    json_add_num_cs(data_obj, NRF_CLOUD_JSON_CELL_ID_KEY,
 		(uint32_t)modem_info->network.cellid_dec) ||
-	    json_add_num_cs(data_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRP,
+	    json_add_num_cs(data_obj, NRF_CLOUD_JSON_RSRP_KEY,
 		RSRP_IDX_TO_DBM(modem_info->network.rsrp.value))) {
 		return -ENOMEM;
 	}
@@ -768,8 +770,8 @@ enum nrf_cloud_rcv_topic nrf_cloud_decode_dc_rx_topic(const char * const topic)
 		return NRF_CLOUD_RCV_TOPIC_AGPS;
 	} else if (strstr(topic, TOPIC_VAL_RCV_PGPS)) {
 		return NRF_CLOUD_RCV_TOPIC_PGPS;
-	} else if (strstr(topic, TOPIC_VAL_RCV_CELL_POS)) {
-		return NRF_CLOUD_RCV_TOPIC_CELL_POS;
+	} else if (strstr(topic, TOPIC_VAL_RCV_GND_FIX)) {
+		return NRF_CLOUD_RCV_TOPIC_LOCATION;
 	} else if (strstr(topic, TOPIC_VAL_RCV_C2D)) {
 		return NRF_CLOUD_RCV_TOPIC_GENERAL;
 	} else {
@@ -888,9 +890,9 @@ static int nrf_cloud_encode_service_info_ui(const struct nrf_cloud_svc_info_ui *
 				cJSON_CreateString(sensor_type_str[NRF_CLOUD_SENSOR_AIR_PRESS]));
 			++item_cnt;
 		}
-		if (ui->gps) {
+		if (ui->gnss) {
 			cJSON_AddItemToArray(array,
-				cJSON_CreateString(sensor_type_str[NRF_CLOUD_SENSOR_GPS]));
+				cJSON_CreateString(sensor_type_str[NRF_CLOUD_SENSOR_GNSS]));
 			++item_cnt;
 		}
 		if (ui->flip) {
@@ -1432,7 +1434,7 @@ int nrf_cloud_rest_fota_execution_parse(const char *const response,
 	size_obj = cJSON_GetObjectItem(job_doc, NRF_CLOUD_FOTA_REST_KEY_SIZE);
 
 	if (!id_obj || !path_obj || !host_obj || !type_obj || !size_obj) {
-		ret = -EFTYPE;
+		ret = -EPROTO;
 		goto err_cleanup;
 	}
 
@@ -1512,7 +1514,7 @@ int nrf_cloud_parse_pgps_response(const char *const response,
 		if (get_string_from_array(rsp_obj, NRF_CLOUD_PGPS_RCV_ARRAY_IDX_HOST, &host_ptr) ||
 		    get_string_from_array(rsp_obj, NRF_CLOUD_PGPS_RCV_ARRAY_IDX_PATH, &path_ptr)) {
 			LOG_ERR("Invalid P-GPS array response format");
-			err = -EFTYPE;
+			err = -EPROTO;
 			goto cleanup;
 		}
 	} else if (get_string_from_obj(rsp_obj, NRF_CLOUD_PGPS_RCV_REST_HOST, &host_ptr) ||
@@ -1527,7 +1529,7 @@ int nrf_cloud_parse_pgps_response(const char *const response,
 			err = -EFAULT;
 		} else {
 			LOG_ERR("Invalid P-GPS response format");
-			err = -EFTYPE;
+			err = -EPROTO;
 		}
 
 		goto cleanup;
@@ -1590,6 +1592,27 @@ int get_string_from_obj(const cJSON *const obj, const char *const key,
 	return 0;
 }
 
+int nrf_cloud_get_single_cell_modem_info(struct lte_lc_cell *const cell_inf)
+{
+	__ASSERT_NO_MSG(cell_inf != NULL);
+
+	struct modem_param_info modem_info = {0};
+	int err;
+
+	err = get_modem_info(&modem_info);
+	if (err) {
+		return err;
+	}
+
+	cell_inf->mcc	= modem_info.network.mcc.value;
+	cell_inf->mnc	= modem_info.network.mnc.value;
+	cell_inf->tac	= modem_info.network.area_code.value;
+	cell_inf->id	= modem_info.network.cellid_dec;
+	cell_inf->rsrp	= modem_info.network.rsrp.value;
+
+	return 0;
+}
+
 int nrf_cloud_format_single_cell_pos_req_json(cJSON *const req_obj_out)
 {
 	int err = 0;
@@ -1610,124 +1633,159 @@ int nrf_cloud_format_single_cell_pos_req_json(cJSON *const req_obj_out)
 	return err;
 }
 
-int nrf_cloud_format_cell_pos_req_json(struct lte_lc_cells_info const *const inf,
-	size_t inf_cnt, cJSON *const req_obj_out)
+static int add_ncells(cJSON * const lte_obj, const uint8_t ncells_count,
+	const struct lte_lc_ncell *const neighbor_cells)
 {
-	if (!inf || !inf_cnt || !req_obj_out) {
+	if (!lte_obj) {
 		return -EINVAL;
 	}
 
-	cJSON *lte_obj = NULL;
-	cJSON *ncell_obj = NULL;
-	cJSON *lte_array = NULL;
-	cJSON *nmr_array = NULL;
+	if (!ncells_count || !neighbor_cells) {
+		return -ENODATA;
+	}
+
+	cJSON * nmr_array = cJSON_AddArrayToObjectCS(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_NBORS);
+
+	if (!nmr_array) {
+		return -ENOMEM;
+	}
+
+	for (uint8_t i = 0; i < ncells_count; ++i) {
+		const struct lte_lc_ncell *ncell = neighbor_cells + i;
+		cJSON *ncell_obj = cJSON_CreateObject();
+
+		if (!ncell_obj) {
+			return -ENOMEM;
+		}
+
+		if (!cJSON_AddItemToArray(nmr_array, ncell_obj)) {
+			cJSON_Delete(ncell_obj);
+			return -ENOMEM;
+		}
+
+		/* Required parameters for the API call */
+		if (json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_EARFCN,
+					ncell->earfcn) ||
+			json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_PCI,
+					ncell->phys_cell_id)) {
+			return -ENOMEM;
+		}
+
+		/* Optional parameters for the API call */
+		if ((ncell->rsrp != NRF_CLOUD_LOCATION_CELL_OMIT_RSRP) &&
+			json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRP,
+					RSRP_IDX_TO_DBM(ncell->rsrp))) {
+			return -ENOMEM;
+		}
+		if ((ncell->rsrq != NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ) &&
+			json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRQ,
+					RSRQ_IDX_TO_DB(ncell->rsrq))) {
+			return -ENOMEM;
+		}
+		if ((ncell->time_diff != LTE_LC_CELL_TIME_DIFF_INVALID) &&
+			json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_TDIFF,
+					ncell->time_diff)) {
+			return -ENOMEM;
+		}
+	}
+
+	return 0;
+}
+
+static cJSON *add_lte_inf(cJSON *const lte_array, struct lte_lc_cell const *const inf)
+{
+	cJSON *lte_obj = cJSON_CreateObject();
+
+	if (!lte_obj) {
+		return NULL;
+	}
+
+	if (!cJSON_AddItemToArray(lte_array, lte_obj)) {
+		cJSON_Delete(lte_obj);
+		return NULL;
+	}
+
+	/* Required parameters for the API call */
+	if (json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_ECI, inf->id) ||
+		json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_MCC, inf->mcc) ||
+		json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_MNC, inf->mnc) ||
+		json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_TAC, inf->tac)) {
+		return NULL;
+	}
+
+	/* Optional parameters for the API call */
+	if ((inf->earfcn != NRF_CLOUD_LOCATION_CELL_OMIT_EARFCN) &&
+		json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_EARFCN, inf->earfcn)) {
+		return NULL;
+	}
+
+	if ((inf->rsrp != NRF_CLOUD_LOCATION_CELL_OMIT_RSRP) &&
+		json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRP,
+				RSRP_IDX_TO_DBM(inf->rsrp))) {
+		return NULL;
+	}
+
+	if ((inf->rsrq != NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ) &&
+		json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRQ,
+				RSRQ_IDX_TO_DB(inf->rsrq))) {
+		return NULL;
+	}
+
+	if (inf->timing_advance != NRF_CLOUD_LOCATION_CELL_OMIT_TIME_ADV) {
+		uint16_t t_adv = inf->timing_advance;
+
+		if (t_adv > NRF_CLOUD_LOCATION_CELL_TIME_ADV_MAX) {
+			t_adv = NRF_CLOUD_LOCATION_CELL_TIME_ADV_MAX;
+		}
+
+		if (json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_T_ADV, t_adv)) {
+			return NULL;
+		}
+	}
+
+	return lte_obj;
+}
+
+int nrf_cloud_format_cell_pos_req_json(struct lte_lc_cells_info const *const inf,
+	cJSON *const req_obj_out)
+{
+	if (!inf || !req_obj_out) {
+		return -EINVAL;
+	}
+
+	int err;
+	cJSON *lte_array;
+	cJSON *lte_obj;
 
 	lte_array = cJSON_AddArrayToObjectCS(req_obj_out, NRF_CLOUD_CELL_POS_JSON_KEY_LTE);
 	if (!lte_array) {
 		goto cleanup;
 	}
 
-	for (size_t i = 0; i < inf_cnt; ++i) {
-		struct lte_lc_cells_info const *const lte = (inf + i);
-		struct lte_lc_cell const *const cur = &lte->current_cell;
+	/* Add the current cell to the array */
+	lte_obj = add_lte_inf(lte_array, &inf->current_cell);
+	if (!lte_obj) {
+		goto cleanup;
+	}
 
-		lte_obj = cJSON_CreateObject();
+	/* Add neighbor cells if present */
+	err = add_ncells(lte_obj, inf->ncells_count, inf->neighbor_cells);
+	if ((err == -EINVAL) || (err == -ENOMEM)) {
+		goto cleanup;
+	}
 
+	/* Skip GCI cells if not present */
+	if (!inf->gci_cells_count || !inf->gci_cells) {
+		return 0;
+	}
+
+	/* Add GCI cells */
+	for (uint8_t i = 0; i < inf->gci_cells_count; ++i) {
+		const struct lte_lc_cell *gci = inf->gci_cells + i;
+
+		lte_obj = add_lte_inf(lte_array, gci);
 		if (!lte_obj) {
 			goto cleanup;
-		}
-
-		if (!cJSON_AddItemToArray(lte_array, lte_obj)) {
-			cJSON_Delete(lte_obj);
-			goto cleanup;
-		}
-
-		/* required items */
-		if (json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_ECI, cur->id) ||
-		    json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_MCC, cur->mcc) ||
-		    json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_MNC, cur->mnc) ||
-		    json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_TAC, cur->tac)) {
-			goto cleanup;
-		}
-
-		/* optional */
-		if ((cur->earfcn != NRF_CLOUD_CELL_POS_OMIT_EARFCN) &&
-		    json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_EARFCN, cur->earfcn)) {
-			goto cleanup;
-		}
-
-		if ((cur->rsrp != NRF_CLOUD_CELL_POS_OMIT_RSRP) &&
-		    json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRP,
-				    RSRP_IDX_TO_DBM(cur->rsrp))) {
-			goto cleanup;
-		}
-
-		if ((cur->rsrq != NRF_CLOUD_CELL_POS_OMIT_RSRQ) &&
-		    json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRQ,
-				    RSRQ_IDX_TO_DB(cur->rsrq))) {
-			goto cleanup;
-		}
-
-		if (cur->timing_advance != NRF_CLOUD_CELL_POS_OMIT_TIME_ADV) {
-			uint16_t t_adv = cur->timing_advance;
-
-			if (t_adv > NRF_CLOUD_CELL_POS_TIME_ADV_MAX) {
-				t_adv = NRF_CLOUD_CELL_POS_TIME_ADV_MAX;
-			}
-
-			if (json_add_num_cs(lte_obj, NRF_CLOUD_CELL_POS_JSON_KEY_T_ADV, t_adv)) {
-				goto cleanup;
-			}
-		}
-
-		/* Add an array for neighbor cell data if there are any */
-		if (lte->ncells_count) {
-			if (lte->neighbor_cells == NULL) {
-				LOG_WRN("Neighbor cell count is %u, but buffer is NULL",
-					lte->ncells_count);
-				return 0;
-			}
-
-			nmr_array = cJSON_AddArrayToObjectCS(lte_obj,
-							     NRF_CLOUD_CELL_POS_JSON_KEY_NBORS);
-			if (!nmr_array) {
-				goto cleanup;
-			}
-		}
-
-		for (uint8_t j = 0; nmr_array && (j < lte->ncells_count); ++j) {
-			struct lte_lc_ncell *ncell = lte->neighbor_cells + j;
-
-			ncell_obj = cJSON_CreateObject();
-
-			if (!ncell_obj) {
-				goto cleanup;
-			}
-
-			if (!cJSON_AddItemToArray(nmr_array, ncell_obj)) {
-				cJSON_Delete(ncell_obj);
-				goto cleanup;
-			}
-
-			/* required items */
-			if (json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_EARFCN,
-					    ncell->earfcn) ||
-			    json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_PCI,
-					    ncell->phys_cell_id)) {
-				goto cleanup;
-			}
-
-			/* optional */
-			if ((ncell->rsrp != NRF_CLOUD_CELL_POS_OMIT_RSRP) &&
-			    json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRP,
-					    RSRP_IDX_TO_DBM(ncell->rsrp))) {
-				goto cleanup;
-			}
-			if ((ncell->rsrq != NRF_CLOUD_CELL_POS_OMIT_RSRQ) &&
-			    json_add_num_cs(ncell_obj, NRF_CLOUD_CELL_POS_JSON_KEY_RSRQ,
-					    RSRQ_IDX_TO_DB(ncell->rsrq))) {
-				goto cleanup;
-			}
 		}
 	}
 
@@ -1740,19 +1798,98 @@ cleanup:
 	return -ENOMEM;
 }
 
-int nrf_cloud_format_cell_pos_req(struct lte_lc_cells_info const *const inf,
-	size_t inf_cnt, char **string_out)
+int nrf_cloud_format_wifi_req_json(struct wifi_scan_info const *const wifi,
+	cJSON *const req_obj_out)
 {
-	if (!inf || !inf_cnt || !string_out) {
+	if (!wifi || !req_obj_out || !wifi->ap_info || !wifi->cnt) {
+		return -EINVAL;
+	}
+
+	cJSON *wifi_obj = NULL;
+	cJSON *ap_array = NULL;
+
+	wifi_obj = cJSON_AddObjectToObjectCS(req_obj_out, NRF_CLOUD_LOCATION_JSON_KEY_WIFI);
+	ap_array = cJSON_AddArrayToObjectCS(wifi_obj, NRF_CLOUD_LOCATION_JSON_KEY_APS);
+	if (!ap_array) {
+		goto cleanup;
+	}
+
+	for (uint8_t cnt = 0; cnt < wifi->cnt; ++cnt) {
+		char str_buf[MAX(WIFI_MAC_ADDR_STR_LEN, WIFI_SSID_MAX_LEN) + 1];
+		struct wifi_scan_result const *const ap = (wifi->ap_info + cnt);
+		cJSON *ap_obj = cJSON_CreateObject();
+		int ret;
+
+		if (!cJSON_AddItemToArray(ap_array, ap_obj)) {
+			cJSON_Delete(ap_obj);
+			goto cleanup;
+		}
+
+		/* MAC address is the only required parameter for the API call */
+		ret = snprintk(str_buf, sizeof(str_buf),
+			       WIFI_MAC_ADDR_TEMPLATE,
+			       ap->mac[0], ap->mac[1], ap->mac[2],
+			       ap->mac[3], ap->mac[4], ap->mac[5]);
+		if ((ret != WIFI_MAC_ADDR_STR_LEN) ||
+		    json_add_str_cs(ap_obj, NRF_CLOUD_LOCATION_JSON_KEY_WIFI_MAC, str_buf)) {
+			goto cleanup;
+		}
+
+		/* Optional parameters for the API call */
+		memset(str_buf, 0, sizeof(str_buf));
+		if ((ap->ssid_length > 0) && (ap->ssid_length <= WIFI_SSID_MAX_LEN)) {
+			memcpy(str_buf, ap->ssid, ap->ssid_length);
+		}
+
+		if ((str_buf[0] != '\0') &&
+		    json_add_str_cs(ap_obj, NRF_CLOUD_LOCATION_JSON_KEY_WIFI_SSID, str_buf)) {
+			goto cleanup;
+		}
+
+		if ((ap->rssi != NRF_CLOUD_LOCATION_WIFI_OMIT_RSSI) &&
+		    json_add_num_cs(ap_obj, NRF_CLOUD_LOCATION_JSON_KEY_WIFI_RSSI,
+					ap->rssi)) {
+			goto cleanup;
+		}
+
+		if ((ap->channel != NRF_CLOUD_LOCATION_WIFI_OMIT_CHAN) &&
+		    json_add_num_cs(ap_obj, NRF_CLOUD_LOCATION_JSON_KEY_WIFI_CH,
+					ap->channel)) {
+			goto cleanup;
+		}
+	}
+
+	return 0;
+
+cleanup:
+	/* Only need to delete the WiFi object since all items (if any) were added to it */
+	cJSON_DeleteItemFromObject(req_obj_out, NRF_CLOUD_LOCATION_JSON_KEY_WIFI);
+	LOG_ERR("Failed to format WiFi location request, out of memory");
+	return -ENOMEM;
+}
+
+int nrf_cloud_format_location_req(struct lte_lc_cells_info const *const cell_info,
+	struct wifi_scan_info const *const wifi_info, char **string_out)
+{
+	if ((!cell_info && !wifi_info) || !string_out) {
 		return -EINVAL;
 	}
 
 	int err = 0;
 	cJSON *req_obj = cJSON_CreateObject();
 
-	err = nrf_cloud_format_cell_pos_req_json(inf, inf_cnt, req_obj);
-	if (err) {
-		goto cleanup;
+	if (cell_info) {
+		err = nrf_cloud_format_cell_pos_req_json(cell_info, req_obj);
+		if (err) {
+			goto cleanup;
+		}
+	}
+
+	if (wifi_info) {
+		err = nrf_cloud_format_wifi_req_json(wifi_info, req_obj);
+		if (err) {
+			goto cleanup;
+		}
 	}
 
 	*string_out = cJSON_PrintUnformatted(req_obj);
@@ -1791,25 +1928,24 @@ static bool json_item_string_exists(const cJSON *const obj, const char *const ke
 	return (strcmp(str_val, val) == 0);
 }
 
-static int nrf_cloud_parse_cell_pos_json(const cJSON *const cell_pos_obj,
-	struct nrf_cloud_cell_pos_result *const location_out)
+static int nrf_cloud_parse_location_json(const cJSON *const loc_obj,
+	struct nrf_cloud_location_result *const location_out)
 {
-	if (!cell_pos_obj || !location_out) {
+	if (!loc_obj || !location_out) {
 		return -EINVAL;
 	}
 
 	cJSON *lat, *lon, *unc;
 	char *type;
 
-	lat = cJSON_GetObjectItem(cell_pos_obj,
-				  NRF_CLOUD_CELL_POS_JSON_KEY_LAT);
-	lon = cJSON_GetObjectItem(cell_pos_obj,
-				NRF_CLOUD_CELL_POS_JSON_KEY_LON);
-	unc = cJSON_GetObjectItem(cell_pos_obj,
-				NRF_CLOUD_CELL_POS_JSON_KEY_UNCERT);
+	lat = cJSON_GetObjectItem(loc_obj,
+				  NRF_CLOUD_LOCATION_JSON_KEY_LAT);
+	lon = cJSON_GetObjectItem(loc_obj,
+				  NRF_CLOUD_LOCATION_JSON_KEY_LON);
+	unc = cJSON_GetObjectItem(loc_obj,
+				  NRF_CLOUD_LOCATION_JSON_KEY_UNCERT);
 
-	if (!cJSON_IsNumber(lat) || !cJSON_IsNumber(lon) ||
-	    !cJSON_IsNumber(unc)) {
+	if (!cJSON_IsNumber(lat) || !cJSON_IsNumber(lon) || !cJSON_IsNumber(unc)) {
 		return -EBADMSG;
 	}
 
@@ -1817,18 +1953,20 @@ static int nrf_cloud_parse_cell_pos_json(const cJSON *const cell_pos_obj,
 	location_out->lon = lon->valuedouble;
 	location_out->unc = (uint32_t)unc->valueint;
 
-	location_out->type = CELL_POS_TYPE__INVALID;
+	location_out->type = LOCATION_TYPE__INVALID;
 
-	if (!get_string_from_obj(cell_pos_obj, NRF_CLOUD_JSON_FULFILL_KEY, &type)) {
-		if (!strcmp(type, NRF_CLOUD_CELL_POS_TYPE_VAL_MCELL)) {
-			location_out->type = CELL_POS_TYPE_MULTI;
-		} else if (!strcmp(type, NRF_CLOUD_CELL_POS_TYPE_VAL_SCELL)) {
-			location_out->type = CELL_POS_TYPE_SINGLE;
+	if (!get_string_from_obj(loc_obj, NRF_CLOUD_JSON_FULFILL_KEY, &type)) {
+		if (!strcmp(type, NRF_CLOUD_LOCATION_TYPE_VAL_MCELL)) {
+			location_out->type = LOCATION_TYPE_MULTI_CELL;
+		} else if (!strcmp(type, NRF_CLOUD_LOCATION_TYPE_VAL_SCELL)) {
+			location_out->type = LOCATION_TYPE_SINGLE_CELL;
+		} else if (!strcmp(type, NRF_CLOUD_LOCATION_TYPE_VAL_WIFI)) {
+			location_out->type = LOCATION_TYPE_WIFI;
 		} else {
-			LOG_WRN("Unhandled cellular positioning type: %s", type);
+			LOG_WRN("Unhandled location type: %s", type);
 		}
 	} else {
-		LOG_WRN("Cellular positioning type not found in message");
+		LOG_WRN("Location type not found in message");
 	}
 
 	return 0;
@@ -1850,7 +1988,7 @@ int nrf_cloud_handle_error_message(const char *const buf,
 
 	root_obj = cJSON_Parse(buf);
 	if (!root_obj) {
-		LOG_DBG("No JSON found");
+		/* No JSON found, not an error message */
 		return -ENODATA;
 	}
 
@@ -1876,27 +2014,27 @@ clean_up:
 	return ret;
 }
 
-int nrf_cloud_parse_cell_pos_response(const char *const buf,
-				      struct nrf_cloud_cell_pos_result *result)
+int nrf_cloud_parse_location_response(const char *const buf,
+					struct nrf_cloud_location_result *result)
 {
 	int ret;
-	cJSON *cell_pos_obj;
+	cJSON *loc_obj;
 	cJSON *data_obj;
 
 	if ((buf == NULL) || (result == NULL)) {
 		return -EINVAL;
 	}
 
-	cell_pos_obj = cJSON_Parse(buf);
-	if (!cell_pos_obj) {
-		LOG_DBG("No JSON found for cellular positioning");
-		return 1;  /* 1: cell-based location not found */
+	loc_obj = cJSON_Parse(buf);
+	if (!loc_obj) {
+		LOG_DBG("No JSON found for location");
+		return 1;
 	}
 
 	/* First, check to see if this is a REST payload, which is not wrapped in
 	 * an nRF Cloud MQTT message
 	 */
-	ret = nrf_cloud_parse_cell_pos_json(cell_pos_obj, result);
+	ret = nrf_cloud_parse_location_json(loc_obj, result);
 	if (ret == 0) {
 		goto cleanup;
 	}
@@ -1906,45 +2044,45 @@ int nrf_cloud_parse_cell_pos_response(const char *const buf,
 	ret = 1;
 
 	/* Check for nRF Cloud MQTT message; valid appId and msgType */
-	if (!json_item_string_exists(cell_pos_obj, NRF_CLOUD_JSON_MSG_TYPE_KEY,
+	if (!json_item_string_exists(loc_obj, NRF_CLOUD_JSON_MSG_TYPE_KEY,
 				     NRF_CLOUD_JSON_MSG_TYPE_VAL_DATA) ||
-	    !json_item_string_exists(cell_pos_obj, NRF_CLOUD_JSON_APPID_KEY,
-				     NRF_CLOUD_JSON_APPID_VAL_CELL_POS)) {
-		/* Not a celluar positioning data message */
+	    !json_item_string_exists(loc_obj, NRF_CLOUD_JSON_APPID_KEY,
+				     NRF_CLOUD_JSON_APPID_VAL_LOCATION)) {
+		/* Not a location data message */
 		goto cleanup;
 	}
 
 	/* MQTT payload format found, parse the data */
-	data_obj = cJSON_GetObjectItem(cell_pos_obj, NRF_CLOUD_JSON_DATA_KEY);
+	data_obj = cJSON_GetObjectItem(loc_obj, NRF_CLOUD_JSON_DATA_KEY);
 	if (data_obj) {
-		ret = nrf_cloud_parse_cell_pos_json(data_obj, result);
+		ret = nrf_cloud_parse_location_json(data_obj, result);
 		if (ret) {
-			LOG_ERR("Failed to parse cellular positioning data");
+			LOG_ERR("Failed to parse location data");
 		}
 		/* A message with "data" should not also contain an error code */
 		goto cleanup;
 	}
 
 	/* Check for error code */
-	ret = get_error_code_value(cell_pos_obj, &result->err);
+	ret = get_error_code_value(loc_obj, &result->err);
 	if (ret) {
 		/* Indicate that an nRF Cloud error code was found */
 		ret = -EFAULT;
 	} else {
 		/* No data or error was found */
-		LOG_ERR("Expected data not found in cellular positioning message");
+		LOG_ERR("Expected data not found in location message");
 		ret = -EBADMSG;
 	}
 
 cleanup:
-	cJSON_Delete(cell_pos_obj);
+	cJSON_Delete(loc_obj);
 
 	if (ret < 0) {
 		/* Clear data on error */
 		result->lat = 0.0;
 		result->lon = 0.0;
 		result->unc = 0;
-		result->type = CELL_POS_TYPE__INVALID;
+		result->type = LOCATION_TYPE__INVALID;
 
 		/* Set to unknown error if an error code was not found */
 		if (result->err == NRF_CLOUD_ERROR_NONE) {
@@ -2165,7 +2303,7 @@ int nrf_cloud_gnss_msg_json_encode(const struct nrf_cloud_gnss_data * const gnss
 		}
 		break;
 	default:
-		ret = -EFTYPE;
+		ret = -EPROTO;
 		goto cleanup;
 	}
 

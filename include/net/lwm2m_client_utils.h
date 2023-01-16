@@ -24,6 +24,7 @@
 #define LWM2M_CLIENT_UTILS_H__
 
 #include <zephyr/kernel.h>
+#include <zephyr/device.h>
 #include <zephyr/net/lwm2m.h>
 #include <modem/lte_lc.h>
 
@@ -62,7 +63,7 @@ struct modem_mode_change {
  * storage using Zephyr settings API. Credential are stored to
  * modem and no keys would enter the flash.
  *
- * @note This API calls settings_subsys_init() so should
+ * @note This API calls settings_subsys_init() and should
  *       only be called after the settings backend (Flash or FS)
  *       is ready.
  */
@@ -72,7 +73,7 @@ int lwm2m_init_security(struct lwm2m_ctx *ctx, char *endpoint, struct modem_mode
  * @brief Set security object to PSK mode.
  *
  * Any pointer can be given as a NULL, which means that data related to this field is set to
- * zero legth in the engine. Effectively, it causes that relative data is not written into
+ * zero length in the engine. Effectively, it causes that relative data is not written into
  * the modem. This can be used if the given data is already provisioned to the modem.
  *
  * @param sec_obj_inst Security object ID to modify.
@@ -146,7 +147,7 @@ int lwm2m_init_location(void);
 /**
  * @brief Firmware update state change event callback.
  *
- * @param[in] update_state LWM2M Firmware Update object states
+ * @param[in] update_state LwM2M Firmware Update object states
  *
  * @return Callback returns a negative error code (errno.h) indicating
  *         reason of failure or 0 for success.
@@ -162,18 +163,6 @@ typedef int (*lwm2m_firmware_get_update_state_cb_t)(uint8_t update_state);
  * @param[in] cb A callback function to receive firmware update state changes.
  */
 void lwm2m_firmware_set_update_state_cb(lwm2m_firmware_get_update_state_cb_t cb);
-
-/**
- * @brief Apply the firmware update.
- *
- * By default lwm2m firmware is applied when the update resource (5/0/2) is executed.
- * If application needs to control the update, it can set its own callback for the
- * update resource calling `lwm2m_firmware_set_update_cb`. After that, the application
- * can apply the firmware update when it is ready.
- *
- * @param[in] obj_inst_id Instance id of the firmware update object.
- */
-int lwm2m_firmware_apply_update(uint16_t obj_inst_id);
 
 /**
  * @brief Firmware read callback
@@ -197,14 +186,11 @@ void lwm2m_verify_modem_fw_update(void);
 
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_CONN_MON_OBJ_SUPPORT)
 /**
- * @brief Initialize Connectivity Monitoring object
+ * @brief Initialize Connectivity Monitoring object. Called in SYS_INIT.
+ *
+ * @return Zero if success, negative error code otherwise.
  */
-int lwm2m_init_connmon(void);
-
-/**
- * @brief Update Connectivity Monitoring object
- */
-int lwm2m_update_connmon(void);
+int lwm2m_init_connmon(const struct device *dev);
 #endif
 
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_CELL_CONN_OBJ_SUPPORT)
@@ -212,22 +198,94 @@ int lwm2m_update_connmon(void);
 int lwm2m_init_cellular_connectivity_object(void);
 #endif
 
+enum lwm2m_rai_mode {
+	LWM2M_RAI_MODE_DISABLED	= 0,
+	LWM2M_RAI_MODE_ENABLED	= 1
+};
+
 /**
  * @brief Initialize release assistance indication (RAI) module.
+ *
+ * @return Zero if success, negative error code otherwise.
  */
 int lwm2m_init_rai(void);
 
 /**
  * @brief Set socket option SO_RAI_NO_DATA to bypass
  * RRC Inactivity period and immediately switch to Idle mode.
+ *
+ * @return Zero if success, negative error code otherwise.
  */
 int lwm2m_rai_no_data(void);
 
 /**
  * @brief Set socket option SO_RAI_LAST and send dummy packet to bypass
  * RRC Inactivity period and immediately switch to Idle mode.
+ *
+ * @return Zero if success, negative error code otherwise.
  */
 int lwm2m_rai_last(void);
+
+/**
+ * @brief Get the RAI mode.
+ *
+ * @param mode Pointer to RAI mode variable.
+ *
+ * @return Zero if success, negative error code otherwise.
+ */
+int lwm2m_rai_get(enum lwm2m_rai_mode *mode);
+
+/**
+ * @brief Function for requesting modem to enable or disable
+ * use of AS RAI.
+ *
+ * @param mode Requested RAI mode.
+ *
+ * @return Zero if success, negative error code otherwise.
+ */
+int lwm2m_rai_req(enum lwm2m_rai_mode mode);
+
+/* Advanced firmare object support */
+uint8_t lwm2m_adv_firmware_get_update_state(uint16_t obj_inst_id);
+void lwm2m_adv_firmware_set_update_state(uint16_t obj_inst_id, uint8_t state);
+uint8_t lwm2m_adv_firmware_get_update_result(uint16_t obj_inst_id);
+void lwm2m_adv_firmware_set_update_result(uint16_t obj_inst_id, uint8_t result);
+void lwm2m_adv_firmware_set_write_cb(uint16_t obj_inst_id, lwm2m_engine_set_data_cb_t cb);
+lwm2m_engine_set_data_cb_t lwm2m_adv_firmware_get_write_cb(uint16_t obj_inst_id);
+void lwm2m_adv_firmware_set_update_cb(uint16_t obj_inst_id, lwm2m_engine_execute_cb_t cb);
+lwm2m_engine_execute_cb_t lwm2m_adv_firmware_get_update_cb(uint16_t obj_inst_id);
+int lwm2m_adv_firmware_create_inst(const char *component,
+				   lwm2m_engine_set_data_cb_t write_callback,
+				   lwm2m_engine_execute_cb_t update_callback);
+
+#define LWM2M_OBJECT_ADV_FIRMWARE_ID 33629
+#define RESULT_ADV_FOTA_CANCELLED 10
+#define RESULT_ADV_FOTA_DEFERRED 11
+#define RESULT_ADV_CONFLICT_STATE 12
+#define RESULT_ADV_DEPENDENCY_ERR 13
+
+
+
+/* Firmware resource IDs */
+#define LWM2M_FOTA_PACKAGE_ID 0
+#define LWM2M_FOTA_PACKAGE_URI_ID 1
+#define LWM2M_FOTA_UPDATE_ID 2
+#define LWM2M_FOTA_STATE_ID 3
+#define LWM2M_FOTA_UPDATE_RESULT_ID 5
+#define LWM2M_FOTA_PACKAGE_NAME_ID 6
+#define LWM2M_FOTA_PACKAGE_VERSION_ID 7
+#define LWM2M_FOTA_UPDATE_PROTO_SUPPORT_ID 8
+#define LWM2M_FOTA_UPDATE_DELIV_METHOD_ID 9
+/* LwM2M v1.2 extension which are common for advanced fota */
+#define LWM2M_FOTA_CANCEL_ID 10
+#define LWM2M_FOTA_SEVERITY_ID 11
+#define LWM2M_FOTA_LAST_STATE_CHANGE_TIME_ID 12
+#define LWM2M_FOTA_MAXIMUM_DEFERRED_PERIOD_ID 13
+/* Unique resources for advanced fota */
+#define LWM2M_ADV_FOTA_COMPONENT_NAME_ID 14
+#define LWM2M_ADV_FOTA_CURRENT_VERSION_ID 15
+#define LWM2M_ADV_FOTA_LINKED_INSTANCES_ID 16
+#define LWM2M_ADV_FOTA_CONFLICTING_INSTANCES_ID 17
 
 #ifdef __cplusplus
 }

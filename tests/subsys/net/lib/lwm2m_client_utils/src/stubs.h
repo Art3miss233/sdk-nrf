@@ -9,7 +9,6 @@
 
 #include <zephyr/ztest.h>
 #include <zephyr/fff.h>
-
 #include <net/lwm2m_client_utils.h>
 #include <modem/modem_key_mgmt.h>
 #include <modem/modem_info.h>
@@ -25,6 +24,9 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_get_res_buf, const char *, void **, ui
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_get_u8, const char *, uint8_t *);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_get_bool, const char *, bool *);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_set_opaque, const char *, const char *, uint16_t);
+DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_set_string, const char *, const char *)
+DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_send, struct lwm2m_ctx *,
+			char const **, uint8_t, bool);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_delete_obj_inst, const char *);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_delete_callback, uint16_t,
 			lwm2m_engine_user_cb_t);
@@ -33,13 +35,11 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_create_callback, uint16_t,
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_post_write_callback, const char *,
 			lwm2m_engine_set_data_cb_t);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_create_obj_inst, const char *);
-DECLARE_FAKE_VALUE_FUNC(int, lwm2m_path_to_string, char *, size_t, struct lwm2m_obj_path *, int);
+DECLARE_FAKE_VALUE_FUNC(int, lwm2m_create_obj_inst, uint16_t, uint16_t,
+			struct lwm2m_engine_obj_inst **);
 DECLARE_FAKE_VALUE_FUNC(struct lwm2m_engine_obj_inst *, lwm2m_engine_get_obj_inst,
 			const struct lwm2m_obj_path *);
-DECLARE_FAKE_VALUE_FUNC(int, lwm2m_string_to_path, const char *, struct lwm2m_obj_path *, char);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_notify_observer, uint16_t, uint16_t, uint16_t);
-DECLARE_FAKE_VALUE_FUNC(int, lwm2m_update_signal_meas_objects,
-			const struct lte_lc_cells_info *const);
 DECLARE_FAKE_VALUE_FUNC(struct lwm2m_ctx *, lwm2m_rd_client_ctx);
 DECLARE_FAKE_VOID_FUNC(lwm2m_rd_client_update);
 DECLARE_FAKE_VOID_FUNC(lwm2m_register_obj, struct lwm2m_engine_obj *);
@@ -60,6 +60,10 @@ DECLARE_FAKE_VALUE_FUNC(int, lte_lc_edrx_param_set, enum lte_lc_lte_mode, const 
 DECLARE_FAKE_VALUE_FUNC(int, lte_lc_edrx_req, bool);
 DECLARE_FAKE_VALUE_FUNC(int, lte_lc_neighbor_cell_measurement, struct lte_lc_ncellmeas_params *);
 DECLARE_FAKE_VOID_FUNC(lte_lc_register_handler, lte_lc_evt_handler_t);
+DECLARE_FAKE_VALUE_FUNC(int, nrf_cloud_agps_process, const char *, size_t);
+DECLARE_FAKE_VALUE_FUNC(int, nrf_cloud_pgps_begin_update);
+DECLARE_FAKE_VALUE_FUNC(int, nrf_cloud_pgps_process_update, uint8_t *, size_t);
+DECLARE_FAKE_VALUE_FUNC(int, nrf_cloud_pgps_finish_update);
 DECLARE_FAKE_VALUE_FUNC(int, settings_load_subtree, const char *);
 DECLARE_FAKE_VALUE_FUNC(int, settings_register, struct settings_handler *);
 DECLARE_FAKE_VALUE_FUNC(int, settings_subsys_init);
@@ -72,13 +76,19 @@ DECLARE_FAKE_VALUE_FUNC(int, modem_info_params_init, struct modem_param_info *);
 DECLARE_FAKE_VALUE_FUNC(int, modem_info_params_get, struct modem_param_info *);
 DECLARE_FAKE_VALUE_FUNC(int, lte_lc_lte_mode_get, enum lte_lc_lte_mode *);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_create_res_inst, const char *);
-DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_set_res_buf, const char *, void *, uint16_t,
-			     uint16_t, uint8_t);
+DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_set_res_buf, const char *, void *, uint16_t, uint16_t,
+			uint8_t);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_set_u32, const char *, uint32_t);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_set_s8, const char *, int8_t);
+DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_set_s32, const char *, int32_t);
 DECLARE_FAKE_VALUE_FUNC(int, modem_info_rsrp_register, rsrp_cb_t);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_exec_callback, const char *,
-		       lwm2m_engine_execute_cb_t);
+			lwm2m_engine_execute_cb_t);
+DECLARE_FAKE_VALUE_FUNC(int, lwm2m_rai_req, enum lwm2m_rai_mode);
+DECLARE_FAKE_VALUE_FUNC(struct net_if*, net_if_lookup_by_dev, const struct device *);
+DECLARE_FAKE_VOID_FUNC(net_mgmt_add_event_callback, struct net_mgmt_event_callback *);
+DECLARE_FAKE_VALUE_FUNC(int, net_mgmt_NET_REQUEST_WIFI_SCAN, uint32_t, struct net_if *,
+			void *, size_t);
 
 /* List of fakes used by this unit tester */
 #define DO_FOREACH_FAKE(FUNC) do { \
@@ -90,7 +100,10 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_exec_callback, const char *,
 	FUNC(lwm2m_engine_get_u8)                       \
 	FUNC(lwm2m_engine_get_bool)                     \
 	FUNC(lwm2m_engine_set_s8)                       \
+	FUNC(lwm2m_engine_set_s32)                      \
 	FUNC(lwm2m_engine_set_opaque)                   \
+	FUNC(lwm2m_engine_set_string)                   \
+	FUNC(lwm2m_engine_send)				\
 	FUNC(lwm2m_engine_delete_obj_inst)              \
 	FUNC(lwm2m_engine_register_delete_callback)     \
 	FUNC(lwm2m_engine_register_create_callback)     \
@@ -99,12 +112,10 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_exec_callback, const char *,
 	FUNC(lwm2m_engine_create_obj_inst)              \
 	FUNC(lwm2m_engine_create_res_inst)              \
 	FUNC(lwm2m_engine_set_res_buf)                  \
-	FUNC(lwm2m_path_to_string)                      \
+	FUNC(lwm2m_create_obj_inst)			\
 	FUNC(lwm2m_engine_get_obj_inst)                 \
-	FUNC(lwm2m_string_to_path)                      \
 	FUNC(lwm2m_notify_observer)                     \
 	FUNC(lwm2m_register_obj)                        \
-	FUNC(lwm2m_update_signal_meas_objects)          \
 	FUNC(lwm2m_rd_client_ctx)                       \
 	FUNC(lwm2m_rd_client_update)                    \
 	FUNC(modem_key_mgmt_exists)                     \
@@ -127,6 +138,10 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_exec_callback, const char *,
 	FUNC(lte_lc_edrx_req)                           \
 	FUNC(lte_lc_neighbor_cell_measurement)          \
 	FUNC(lte_lc_register_handler)                   \
+	FUNC(nrf_cloud_agps_process)			\
+	FUNC(nrf_cloud_pgps_begin_update)		\
+	FUNC(nrf_cloud_pgps_process_update)		\
+	FUNC(nrf_cloud_pgps_finish_update)		\
 	FUNC(settings_load_subtree)                     \
 	FUNC(settings_register)                         \
 	FUNC(settings_subsys_init)                      \
@@ -134,6 +149,10 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_engine_register_exec_callback, const char *,
 	FUNC(settings_delete)                           \
 	FUNC(settings_name_next)                        \
 	FUNC(engine_trigger_update)                     \
+	FUNC(lwm2m_rai_req)                             \
+	FUNC(net_if_lookup_by_dev)			\
+	FUNC(net_mgmt_add_event_callback)		\
+	FUNC(net_mgmt_NET_REQUEST_WIFI_SCAN)		\
 	} while (0)
 
 #endif

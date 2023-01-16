@@ -9,18 +9,22 @@
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/pacs.h>
+#include <zephyr/bluetooth/audio/csip.h>
+#include <zephyr/bluetooth/audio/cap.h>
 #include <../subsys/bluetooth/audio/endpoint.h>
 
 #include "macros_common.h"
 #include "ctrl_events.h"
 #include "ble_audio_services.h"
+#include "ble_hci_vsc.h"
 #include "audio_datapath.h"
 #include "channel_assignment.h"
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(cis_headset, CONFIG_LOG_BLE_LEVEL);
+LOG_MODULE_REGISTER(cis_headset, CONFIG_BLE_LOG_LEVEL);
 
 #define CHANNEL_COUNT_1 BIT(0)
 #define BLE_ISO_LATENCY_MS 10
@@ -44,12 +48,50 @@ static struct net_buf_pool *iso_tx_pools[] = { LISTIFY(CONFIG_BT_ASCS_ASE_SRC_CO
 /* clang-format on */
 #endif /* CONFIG_STREAM_BIDIRECTIONAL */
 
+#define CSIP_SET_SIZE 2
+enum csip_set_rank { CSIP_HL_RANK = 1, CSIP_HR_RANK = 2 };
+
+static struct bt_csip_set_member_svc_inst *csip;
 static struct bt_le_ext_adv *adv_ext;
 /* Advertising data for peer connection */
+static uint8_t csip_rsi[BT_CSIP_RSI_SIZE];
+
 static const struct bt_data ad_peer[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 	BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_ASCS_VAL)),
-	BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_PACS_VAL))
+	BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_PACS_VAL)),
+	BT_CSIP_DATA_RSI(csip_rsi)
+};
+
+/* Callback for locking state change from server side */
+static void csip_lock_changed_cb(struct bt_conn *conn, struct bt_csip_set_member_svc_inst *csip,
+				 bool locked)
+{
+	LOG_DBG("Client %p %s the lock", (void *)conn, locked ? "locked" : "released");
+}
+
+/* Callback for SIRK read request from peer side */
+static uint8_t sirk_read_req_cb(struct bt_conn *conn, struct bt_csip_set_member_svc_inst *csip)
+{
+	/* Accept the request to read the SIRK, but return encrypted SIRK instead of plaintext */
+	return BT_CSIP_READ_SIRK_REQ_RSP_ACCEPT_ENC;
+}
+
+static struct bt_csip_set_member_cb csip_callbacks = {
+	.lock_changed = csip_lock_changed_cb,
+	.sirk_read_req = sirk_read_req_cb,
+};
+struct bt_csip_set_member_register_param csip_param = {
+	.set_size = CSIP_SET_SIZE,
+	.lockable = true,
+#if !CONFIG_BT_CSIP_SET_MEMBER_TEST_SAMPLE_DATA
+	/* CSIP SIRK for demo is used, must be changed before production */
+	.set_sirk = { 'N', 'R', 'F', '5', '3', '4', '0', '_', 'T', 'W', 'S', '_', 'D', 'E', 'M',
+		      'O' },
+#else
+#warning "CSIP test sample data is used, must be changed before production"
+#endif
+	.cb = &csip_callbacks,
 };
 
 static le_audio_receive_cb receive_cb;
@@ -139,6 +181,13 @@ static void advertising_process(struct k_work *work)
 		adv_param.id = BT_ID_DEFAULT;
 		adv_param.options |= BT_LE_ADV_OPT_DIR_ADDR_RPA;
 
+		/* Clear ADV data set before update to direct advertising */
+		ret = bt_le_ext_adv_set_data(adv_ext, NULL, 0, NULL, 0);
+		if (ret) {
+			LOG_ERR("Failed to clear advertising data. Err: %d", ret);
+			return;
+		}
+
 		ret = bt_le_ext_adv_update_param(adv_ext, &adv_param);
 		if (ret) {
 			LOG_ERR("Failed to update ext_adv to direct advertising. Err = %d", ret);
@@ -150,6 +199,12 @@ static void advertising_process(struct k_work *work)
 	} else
 #endif /* CONFIG_BT_BONDABLE */
 	{
+		ret = bt_csip_set_member_generate_rsi(csip, csip_rsi);
+		if (ret) {
+			LOG_ERR("Failed to generate RSI (ret %d)", ret);
+			return;
+		}
+
 		ret = bt_le_ext_adv_set_data(adv_ext, ad_peer, ARRAY_SIZE(ad_peer), NULL, 0);
 		if (ret) {
 			LOG_ERR("Failed to set advertising data. Err: %d", ret);
@@ -203,6 +258,7 @@ static int lc3_config_cb(struct bt_conn *conn, const struct bt_audio_ep *ep, enu
 			 struct bt_codec_qos_pref *const pref)
 {
 	int ret;
+
 #if CONFIG_STREAM_BIDIRECTIONAL
 	static size_t configured_source_stream_count;
 #endif /* CONFIG_STREAM_BIDIRECTIONAL */
@@ -266,6 +322,7 @@ static int lc3_qos_cb(struct bt_audio_stream *stream, const struct bt_codec_qos 
 	int ret;
 
 	LOG_DBG("QoS: stream %p qos %p", (void *)stream, (void *)qos);
+	LOG_INF("Presentation delay %d us is set by initiator", qos->pd);
 	ret = audio_datapath_pres_delay_us_set(qos->pd);
 
 	return ret;
@@ -376,8 +433,25 @@ static void connected_cb(struct bt_conn *conn, uint8_t err)
 	}
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
 	LOG_INF("Connected: %s", addr);
+
+#if (CONFIG_NRF_21540_ACTIVE)
+	int ret;
+	uint16_t conn_handle;
+
+	ret = bt_hci_get_conn_handle(conn, &conn_handle);
+	if (ret) {
+		LOG_ERR("Unable to get conn handle");
+	} else {
+		ret = ble_hci_vsc_conn_tx_pwr_set(conn_handle, CONFIG_NRF_21540_MAIN_DBM);
+		if (ret) {
+			LOG_ERR("Failed to set TX power for conn");
+		} else {
+			LOG_INF("\tTX power set to %d dBm", CONFIG_NRF_21540_MAIN_DBM);
+		}
+	}
+#endif /* (CONFIG_NRF_21540_ACTIVE) */
+
 	default_conn = bt_conn_ref(conn);
 }
 
@@ -400,9 +474,31 @@ static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 	advertising_start();
 }
 
-BT_CONN_CB_DEFINE(conn_callbacks) = {
+static void security_changed_cb(struct bt_conn *conn, bt_security_t level, enum bt_security_err err)
+{
+	int ret;
+
+	if (err) {
+		LOG_ERR("Security failed: level %d err %d", level, err);
+		ret = bt_conn_disconnect(conn, err);
+		if (ret) {
+			LOG_ERR("Failed to disconnect %d", ret);
+		}
+	} else {
+		LOG_DBG("Security changed: level %d", level);
+#if (CONFIG_BT_MCC)
+		ret = ble_mcs_discover(default_conn);
+		if (ret) {
+			LOG_ERR("Failed to start discovery of MCS: %d", ret);
+		}
+#endif /* CONFIG_BT_MCC */
+	}
+}
+
+static struct bt_conn_cb conn_callbacks = {
 	.connected = connected_cb,
 	.disconnected = disconnected_cb,
+	.security_changed = security_changed_cb,
 };
 
 static struct bt_audio_stream_ops stream_ops = { .recv = stream_recv_cb,
@@ -415,13 +511,22 @@ static int initialize(le_audio_receive_cb recv_cb)
 
 	if (!initialized) {
 		bt_audio_unicast_server_register_cb(&unicast_server_cb);
-#if (CONFIG_BT_VCS)
+		bt_conn_cb_register(&conn_callbacks);
+#if (CONFIG_BT_VCP_VOL_REND)
 		ret = ble_vcs_server_init();
 		if (ret) {
 			LOG_ERR("VCS server init failed");
 			return ret;
 		}
-#endif /* (CONFIG_BT_VCS) */
+#endif /* (CONFIG_BT_VCP_VOL_REND) */
+
+#if (CONFIG_BT_MCC)
+		ret = ble_mcs_client_init();
+		if (ret) {
+			LOG_ERR("MCS client init failed");
+			return ret;
+		}
+#endif /* CONFIG_BT_MCC */
 
 		receive_cb = recv_cb;
 		channel_assignment_get(&channel);
@@ -434,6 +539,7 @@ static int initialize(le_audio_receive_cb recv_cb)
 			}
 		}
 		if (channel == AUDIO_CH_L) {
+			csip_param.rank = CSIP_HL_RANK;
 			ret = bt_pacs_set_location(BT_AUDIO_DIR_SINK, BT_AUDIO_LOCATION_FRONT_LEFT);
 			if (ret) {
 				LOG_ERR("Location set failed");
@@ -441,6 +547,7 @@ static int initialize(le_audio_receive_cb recv_cb)
 			}
 
 		} else {
+			csip_param.rank = CSIP_HR_RANK;
 			ret = bt_pacs_set_location(BT_AUDIO_DIR_SINK,
 						   BT_AUDIO_LOCATION_FRONT_RIGHT);
 			if (ret) {
@@ -485,6 +592,12 @@ static int initialize(le_audio_receive_cb recv_cb)
 			bt_audio_stream_cb_register(&audio_streams[i], &stream_ops);
 		}
 
+		ret = bt_cap_acceptor_register(&csip_param, &csip);
+		if (ret) {
+			LOG_ERR("Failed to register CAP acceptor");
+			return ret;
+		}
+
 		ret = bt_le_ext_adv_create(BT_LE_EXT_ADV_CONN_NAME, NULL, &adv_ext);
 		if (ret) {
 			LOG_ERR("Failed to create advertising set");
@@ -495,6 +608,11 @@ static int initialize(le_audio_receive_cb recv_cb)
 		initialized = true;
 	}
 
+	return 0;
+}
+
+int le_audio_user_defined_button_press(enum le_audio_user_defined_action action)
+{
 	return 0;
 }
 
@@ -548,33 +666,9 @@ int le_audio_volume_mute(void)
 	return 0;
 }
 
-int le_audio_play(void)
+int le_audio_play_pause(void)
 {
-	int ret;
-
-	ret = bt_pacs_set_available_contexts(
-		BT_AUDIO_DIR_SINK, BT_AUDIO_CONTEXT_TYPE_MEDIA | BT_AUDIO_CONTEXT_TYPE_UNSPECIFIED);
-
-	if (ret) {
-		LOG_ERR("Available context set failed");
-		return ret;
-	}
-
-	return 0;
-}
-
-int le_audio_pause(void)
-{
-	int ret;
-
-	ret = bt_pacs_set_available_contexts(BT_AUDIO_DIR_SINK, BT_AUDIO_CONTEXT_TYPE_UNSPECIFIED);
-
-	if (ret) {
-		LOG_ERR("Available context set failed");
-		return ret;
-	}
-
-	return 0;
+	return ble_mcs_play_pause(default_conn);
 }
 
 int le_audio_send(uint8_t const *const data, size_t size)

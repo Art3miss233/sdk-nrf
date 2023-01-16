@@ -7,8 +7,9 @@ Sample description
    :local:
    :depth: 2
 
-The LwM2M Client demonstrates usage of the :term:`Lightweight Machine to Machine (LwM2M)` protocol to connect a Thingy:91 or an nRF9160 DK to an LwM2M server through LTE.
-This sample uses the :ref:`lib_lwm2m_client_utils` library.
+The LwM2M Client sample demonstrates the usage of the :term:`Lightweight Machine to Machine (LwM2M)` protocol to connect a Thingy:91 or an nRF9160 DK to an LwM2M server through LTE.
+To achieve this, the sample uses the Zephyr's :ref:`lwm2m_interface` client and |NCS| :ref:`lib_lwm2m_client_utils` library.
+The former provides a device vendor agnostic client implementation, whereas the latter includes all the Nordic specific bits and pieces.
 
 The sample also supports a proprietary mechanism to fetch location assistance data from `nRF Cloud`_ by proxying it through the LwM2M server.
 For this, the sample makes use of the :ref:`lib_lwm2m_location_assistance` library.
@@ -160,7 +161,7 @@ You need to provide the following information to the LwM2M server before you can
 * Identity
 * `Pre-Shared Key (PSK)`_
 
-See :ref:`server setup <server_setup_lwm2m>` for instructions on providing the information to the server.
+See :ref:`server setup <server_setup_lwm2m_client>` for instructions on providing the information to the server.
 
 Sensor simulation
 =================
@@ -184,16 +185,12 @@ For more information, see :ref:`notifications_setup_lwm2m`.
 Sensor Module
 =============
 
-The sample has a sensor module which, if enabled, reads the selected sensors, and updates the client's resource values if it detects a sufficiently large change in one of the values.
-The threshold for a sufficiently large change can be configured.
-For example, a change in temperature of one degree Celsius.
-
+The sample has a sensor module which, if enabled, reads the selected sensors and updates the client's LwM2M resource values.
 Each sensor can be enabled separately.
-The sampling period and change threshold of a sensor can also be configured independently of all the other sensors.
 
 The sensor module is intended to be used together with notifications.
-If notifications are enabled for a Sensor Value resource, and the corresponding sensor is enabled in the sensor module, a notification will be sent only when that value changes significantly (as specified by the change threshold).
-Thus, the bandwidth usage can be significantly limited, while simultaneously registering important changes in sensor values.
+If notifications are enabled for a Sensor Value resource and the corresponding sensor is enabled in the sensor module, a notification will be sent when the value changes.
+The frequency of notification packets is configured by LwM2M attributes set by the server.
 
 See :ref:`sensor_module_options` for information on enabling and configuring the sensor module.
 
@@ -213,101 +210,15 @@ Before building and running the sample, complete the following steps:
 
 1. Select the device you plan to test.
 #. Select the LwM2M server for testing.
-#. Setup the LwM2M server by completing the steps listed in :ref:`server_setup_lwm2m`.
+#. Setup the LwM2M server by completing the steps listed in :ref:`server_setup_lwm2m_client`.
    This step retrieves the server address and the security tag that will be needed during the next steps.
 #. :ref:`server_addr_PSK`.
 
-.. _server_setup_lwm2m:
+.. |dtls_support| replace:: The same credentials must be provided in the :guilabel:`Leshan Demo Server Security configuration` page (see :ref:`dtls_support` for instructions).
 
-Server setup
-------------
+.. _server_setup_lwm2m_client:
 
-The following instructions describe how to register your device to `Leshan Demo Server`_ or `Coiote Device Management server`_:
-
-1. For adding the device to the LwM2M server, complete the following steps and for adding the device to an LwM2M bootstrap server, see the procedure in :ref:`registering the device to an LwM2M bootstrap server <bootstrap_server_reg>`:
-
-   .. tabs::
-
-      .. tab:: Leshan Demo Server
-
-         1. Open the `Leshan Demo Server web UI`_.
-         #. Click :guilabel:`SECURITY` in the upper right corner in the UI.
-         #. Click :guilabel:`ADD SECURITY INFORMATION`.
-         #. Enter the following data and click :guilabel:`ADD`:
-
-            * Endpoint - urn\:imei\:*your Device IMEI*.
-              The IMEI value is printed on the development kit.
-            * Security Mode - psk
-            * Identity: - urn\:imei\:*your Device IMEI*
-            * Key - 000102030405060708090a0b0c0d0e0f
-
-      .. tab:: Coiote Device Management
-
-         1. Open `Coiote Device Management server`_.
-         #. Click :guilabel:`Device inventory` in the left menu in the UI.
-         #. Click :guilabel:`Add new device`.
-         #. Click :guilabel:`Connect your LwM2M device directly via the management server`.
-         #. Enter the following data and click :guilabel:`Add device`:
-
-            * Endpoint - urn\:imei\:*your Device IMEI*.
-              The IMEI value is printed on the development kit.
-            * Friendly Name - *recognizable name*.
-            * Security mode - psk (Pre-Shared Key).
-            * Key - 000102030405060708090a0b0c0d0e0f.
-
-            Also, make sure to select the :guilabel:`Key in hexadecimal` checkbox.
-
-   .. _bootstrap_server_reg:
-
-   For registering the device to an LwM2M bootstrap server, complete the following steps:
-
-   .. tabs::
-
-      .. tab:: Leshan Demo Server
-
-         1. Open the `Leshan Bootstrap Server Demo web UI <public Leshan Bootstrap Server Demo_>`_.
-         #. Click :guilabel:`BOOTSTRAP` in the upper right corner.
-         #. In the :guilabel:`BOOTSTRAP` tab, click :guilabel:`ADD CLIENTS CONFIGURATION`.
-         #. Click :guilabel:`Add clients configuration`.
-         #. Enter your Client Endpoint name - urn\:imei\:*your device IMEI*. The IMEI value is printed on the development kit.
-         #. Click :guilabel:`NEXT` and select :guilabel:`Using (D)TLS` and enter following data:
-
-            * Identity - urn\:imei\:*your device IMEI*
-            * Key - ``000102030405060708090a0b0c0d0e0f``
-         #. Click :guilabel:`NEXT` and leave default paths to be deleted.
-         #. Click :guilabel:`NEXT` and in the **LWM2M Server Configuration** section, enter the following data:
-
-            * Server URL - ``coaps://leshan.eclipseprojects.io:5684``
-            * Select :guilabel:`Pre-shared Key` as the **Security Mode**
-            * Identity - urn\:imei\:*your device IMEI*
-            * Key - ``000102030405060708090a0b0c0d0e0f``
-
-            This information is used when your client connects to the server.
-            If you choose :guilabel:`Pre-shared Key`, you must add the values for :guilabel:`Identity` and :guilabel:`Key` fields (the configured Key need not match the Bootstrap Server configuration).
-            The same credentials must be provided in the **Leshan Demo Server Security configuration** page (see :ref:`dtls_support` for instructions).
-
-         #. Click :guilabel:`NEXT` and do not select :guilabel:`Add a Bootstrap Server`.
-         #. Click :guilabel:`ADD`.
-
-
-      .. tab:: Coiote Device Management
-
-         1. Open `Coiote Device Management server`_.
-         #. Click :guilabel:`Device inventory` in the menu on the left.
-         #. Click :guilabel:`Add new device`.
-         #. Click :guilabel:`Connect your LwM2M device via the Bootstrap server`.
-         #. Enter the following data and click :guilabel:`Configuration`:
-
-            * Endpoint - urn\:imei\:*your Device IMEI*. The IMEI value is printed on the development kit.
-            * Friendly Name - *recognisable name*.
-            * Security mode - psk (Pre-Shared Key).
-            * Key - 000102030405060708090a0b0c0d0e0f.
-
-            Also, make sure to select the :guilabel:`Key in hexadecimal` checkbox.
-
-            The Coiote bootstrap server automatically creates an account for the LwM2M server using the same device endpoint name and random PSK key.
-
-         #. Click :guilabel:`Add device`.
+.. include:: /includes/lwm2m_common_server_setup.txt
 
 
 .. note::
@@ -501,7 +412,6 @@ Check and configure the following library options that are used by the sample:
   Used with nRF Cloud to request assistance data for the GNSS module.
 * :kconfig:option:`CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSIST_AGPS` - nRF Cloud provides A-GPS assistance data and the GNSS-module in the device uses the data for obtaining a GNSS fix, which is reported back to the LwM2M server.
 * :kconfig:option:`CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSIST_PGPS` - nRF Cloud provides P-GPS predictions and the GNSS-module in the device uses the data for obtaining a GNSS fix, which is reported back to the LwM2M server.
-* :kconfig:option:`CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSIST_EVENTS` - Disable this option if you provide your own method of sending the assistance requests to the LwM2M server.
 * :kconfig:option:`CONFIG_LWM2M_CLIENT_UTILS_NEIGHBOUR_CELL_LISTENER` - Disable this option if you provide your own method of populating the LwM2M objects (ID 10256) containing the cell neighborhood information.
 
 
@@ -521,12 +431,16 @@ The following files are available:
 * :file:`overlay-assist-agps.conf` - Enables A-GPS assistance.
 * :file:`overlay-assist-cell.conf` - Enables cell-based location assistance.
 * :file:`overlay-assist-pgps.conf` - Enables P-GPS assistance in the sample.
+* :file:`overlay-lowpower.conf` - Disables certain features to bring the power consumption down.
+* :file:`overlay-adv-firmware.conf` - Enables experimental Advanced Firmware Update object.
 
 Moreover, the sample also provides the following files for LwM2M 1.1 features:
 
-* :file:`overlay-lwm2m-1.1.conf`
-* :file:`overlay-lwm2m-1.1-core-interop.conf`
-* :file:`overlay-lwm2m-1.1-object-interop.conf`
+* :file:`overlay-lwm2m-1.1.conf` - Enables v1.1 and running of Interoperability Test Cases [0-499].
+* :file:`overlay-lwm2m-1.1-core-interop.conf` - Enables v.1.1 and running of Core Specific Objects Test cases [500-999].
+* :file:`overlay-lwm2m-1.1-object-interop.conf` -  Enables v.1.1 and running of Additional Objects Test cases [1000-1999].
+
+For further information about the test cases, see `Enabler Test Specification (Interoperability) for Lightweight M2M`_.
 
 You can configure the sample either by editing the :file:`prj.conf` file and the relevant overlay files, or through menuconfig or guiconfig.
 
@@ -598,7 +512,7 @@ Testing
 Testing with the LwM2M shell
 ----------------------------
 
-To test the sample using LwM2M shell, complete the following steps:
+To test the sample using :ref:`lwm2m_shell`, complete the following steps:
 
 .. note::
 
@@ -612,19 +526,19 @@ To test the sample using LwM2M shell, complete the following steps:
 
       .. code-block:: console
 
-         & uart:~$ lwm2m update
+         uart:~$ lwm2m update
 
    #. Pause the client:
 
       .. code-block:: console
 
-         & uart:~$ lwm2m pause
+         uart:~$ lwm2m pause
 
    #. Resume the client:
 
       .. code-block:: console
 
-         & uart:~$ lwm2m resume
+         uart:~$ lwm2m resume
 
 Firmware Over-the-Air (FOTA)
 ============================
@@ -672,6 +586,7 @@ It uses the following `sdk-nrfxlib`_ library:
 It uses the following Zephyr libraries:
 
 * :ref:`gpio_api`
+* :ref:`lwm2m_interface`
 * :ref:`pwm_api`
 * :ref:`sensor_api`
 

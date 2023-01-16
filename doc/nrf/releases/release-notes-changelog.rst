@@ -1,6 +1,6 @@
 .. _ncs_release_notes_changelog:
 
-Changelog for |NCS| v2.1.99
+Changelog for |NCS| v2.2.99
 ###########################
 
 .. contents::
@@ -23,17 +23,32 @@ Known issues
 ************
 
 Known issues are only tracked for the latest official release.
-See `known issues for nRF Connect SDK v2.1.0`_ for the list of issues valid for the latest release.
+See `known issues for nRF Connect SDK v2.2.0`_ for the list of issues valid for the latest release.
 
 Changelog
 *********
 
 The following sections provide detailed lists of changes by component.
 
+MCUboot
+=======
+
+|no_changes_yet_note|
+
 Application development
 =======================
 
-* Updated the :ref:`software_maturity` page with a section about API deprecation.
+|no_changes_yet_note|
+
+RF Front-End Modules
+--------------------
+
+|no_changes_yet_note|
+
+Build system
+------------
+
+|no_changes_yet_note|
 
 Protocols
 =========
@@ -46,24 +61,29 @@ Bluetooth LE
 
 |no_changes_yet_note|
 
-For details, see :ref:`nrfxlib:softdevice_controller_changelog`.
-
 Bluetooth mesh
 --------------
 
 |no_changes_yet_note|
-
-See `Bluetooth mesh samples`_ for the list of changes for the Bluetooth mesh samples.
 
 Matter
 ------
 
 * Added:
 
-  * Documentation page about :ref:`ug_matter_overview_multi_fabrics` and entry about binding to :ref:`ug_matter_network_topologies_concepts`.
-  * Documentation page about :ref:`ug_matter_overview_commissioning`, which is based on an earlier subsection of :ref:`ug_matter_overview_network_topologies`.
-  * Documentation page about :ref:`ug_matter_overview_security`, which is based on an earlier subsection of :ref:`ug_matter_overview_network_topologies`.
-  * Documentation section about :ref:`ug_matter_device_certification_reqs_security` on the page about :ref:`ug_matter_device_certification`.
+  * Support for Wi-Fi Network Diagnostic Cluster (which counts the number of packets received and transmitted on the Wi-Fi interface).
+  * Default support for nRF7002 revision B.
+  * Specific QR code and onboarding information in the documentation for each :ref:`Matter sample <matter_samples>` and the :ref:`Matter weather station <matter_weather_station_app>`.
+
+* Fixed:
+
+  * Connection timing out when attaching to a Wi-Fi Access Point that requires Wi-Fi Protected Access 3 (WPA3).
+
+* Updated:
+
+  * Default heap implementation to use Zephyr's ``sys_heap`` (:kconfig:option:`CONFIG_CHIP_MALLOC_SYS_HEAP`) to better control the RAM usage of Matter applications.
+  * :ref:`ug_matter_device_certification` page with a section about certification document templates.
+  * :ref:`ug_matter_overview_commissioning` page with information about :ref:`ug_matter_network_topologies_commissioning_onboarding_formats`.
 
 See `Matter samples`_ for the list of changes for the Matter samples.
 
@@ -93,7 +113,11 @@ See `Zigbee samples`_ for the list of changes for the Zigbee samples.
 ESB
 ---
 
-|no_changes_yet_note|
+  * Added support for front-end modules.
+  * The ESB module requires linking the :ref:`MPSL library <nrfxlib:mpsl_lib>`.
+  * The number of PPI/DPPI channels used is increased from 3 to 6.
+  * Assigned events 6-7 from the EGU0 instance to the ESB module.
+  * Changed the type parameter of the function :c:func:`esb_set_tx_power` to ``int8_t``.
 
 nRF IEEE 802.15.4 radio driver
 ------------------------------
@@ -113,218 +137,197 @@ This section provides detailed lists of changes by :ref:`application <applicatio
 nRF9160: Asset Tracker v2
 -------------------------
 
-* Updated:
+* Added:
 
-  * The application now uses the new LwM2M location assistance objects through the :ref:`lib_lwm2m_location_assistance` library.
-  * Added handling for the new data receive events in the :ref:`lib_nrf_cloud` library.
-
-* Removed:
-
-    * A-GPS and P-GPS processing; it is now handled by the :ref:`lib_nrf_cloud` library.
+  * Wi-Fi support for nRF9160 DK + nRF7002 EK configuration.
 
 nRF9160: Serial LTE modem
 -------------------------
 
-* Added:
-
-  * Added optional data modem flow control option :ref:`CONFIG_SLM_DATAMODE_URC <CONFIG_SLM_DATAMODE_URC>`.
-
-* Updated:
-
-  * Removed automatic quit of data mode in GNSS, FTP and HTTP services.
-  * Added handling for the new data receive events in the :ref:`lib_nrf_cloud` library.
+* Added an RFC1350 TFTP client, currently supporting only *READ REQUEST*.
+* Added new AT command #XSHUTDOWN to put nRF9160 SiP to System OFF mode.
+* Added support to nRF Cloud C2D appId "MODEM" and "DEVICE".
 
 nRF5340 Audio
 -------------
 
 * Added:
 
-  * Kconfig options for different sample rates and BAP presets.
-  * Added Kconfig options for different sample rates and BAP presets.
-  * Added bidirectional mode for the CIS mode.
-  * Added a walkie talkie demo for bidirectional CIS.
+  * Support for Front End Module nRF21540.
+  * Possibility to create a Public Broadcast Announcement (PBA) needed for Auracast.
 
 * Updated:
 
-  * LE Audio Controller Subsystem for nRF53 from version 3303 to version 3307.
-  * Removed support for the nRF5340 Audio DK (PCA10121) board version 0.7.1 or older
-
-* Fixed:
-
-  * An issue with the figure for :ref:`nrf53_audio_app_overview_architecture_i2s` in the :ref:`nrf53_audio_app` documentation.
-    The figure now correctly shows the interaction with the Bluetooth modules.
-  * SMP is not advertising in CIS mode.
-  * MCUMGR command can't receive in BIS mode.
-
-nRF Machine Learning (Edge Impulse)
------------------------------------
-
-* Thingy:52 (``thingy52_nrf52832``) is no longer supported.
+  * Power module has been re-factored so that it uses upstream Zephyr INA23X sensor driver.
+  * BIS headsets can now switch between two broadcast sources (two hardcoded broadcast names).
+  * :ref:`nrf53_audio_app_ui` and :ref:`nrf53_audio_app_testing_steps_cis` sections in the application documentation with information about using **VOL** buttons to switch headset channels.
+  * :ref:`nrf53_audio_app_requirements` section in the application documentation by moving the information about the nRF5340 Audio DK to `Nordic Semiconductor Infocenter`_, under `nRF5340 Audio DK Hardware`_.
 
 nRF Desktop
 -----------
 
-* The UUID16 values of GATT Human Interface Device Service (HIDS) and GATT Battery Service (BAS) are moved from advertising data to scan response data.
+* Added an application log informing about the configuration option value update in the :ref:`nrf_desktop_motion`.
 
-Thingy:53 Zigbee weather station
---------------------------------
+* Changed:
 
-|no_changes_yet_note|
+   * Implemented adjustments to avoid flooding logs:
 
-Connectivity Bridge
--------------------
-
-|no_changes_yet_note|
+      * Set the max compiled-in log level to ``warning`` for the Non-Volatile Storage (:kconfig:option:`CONFIG_NVS_LOG_LEVEL`).
+      * Lowered a log level to ``debug`` for the ``Identity x created`` log in the :ref:`nrf_desktop_ble_bond`.
 
 Samples
 =======
 
-This section provides detailed lists of changes by :ref:`sample <sample>`, including protocol-related samples.
-For lists of protocol-specific changes, see `Protocols`_.
-
 Bluetooth samples
 -----------------
 
-* Added:
-
-  * :ref:`peripheral_cgms` sample.
-
-* :ref:`ble_throughput` sample:
-
-  * Added terminal commands for selecting the role.
-  * Updated the ASCII art used for showing progress to feature the current Nordic Semiconductor logo.
-
-* :ref:`peripheral_fast_pair` sample:
-
-  * Switched to using :ref:`bt_le_adv_prov_readme` to generate Bluetooth advertising and scan response data.
-  * After the device reaches the maximum number of paired devices (:kconfig:option:`CONFIG_BT_MAX_PAIRED`), the device stops looking for new peers.
-    Therefore, the Fast Pair payload is no longer included in the advertising data.
-
-* :ref:`peripheral_mds` sample:
+* :ref:`peripheral_uart` sample:
 
   * Changed:
 
-    * Added a documentation section about testing with the `nRF Memfault for Android`_ and the `nRF Memfault for iOS`_ mobile applications to the documentation.
+    * Fixed a possible memory leak in the :c:func:`uart_init` function.
 
-* :ref:`direct_test_mode` sample:
+* :ref:`peripheral_hids_keyboard` sample:
 
   * Changed:
 
-    * Front-end module support is now provided by the :ref:`nrfxlib:mpsl_fem` API instead of the custom driver that was part of this sample.
-    * On the nRF5340 development kit, the :ref:`nrf5340_remote_shell` is now a mandatory sample that must be programmed to the application core.
-    * On the nRF5340 development kit, the application core UART interface is used for communication with testers instead of the network core UART interface.
-    * On the nRF5340 development kit, added support for the USB CDC ACM interface.
+    * Fixed a possible out-of-bounds memory access issue in the :c:func:`hid_kbd_state_key_set` and :c:func:`hid_kbd_state_key_clear` functions.
+
+* :ref: `ble_nrf_dm` sample:
+
+  * Added:
+
+    * Support for high-precision distance estimate using more compute-intensive algorithms.
+
+  * Changed:
+
+    * Added energy consumption information to documentation.
+    * Added a documentation section about distance offset calibration.
 
 Bluetooth mesh samples
 ----------------------
 
-* :ref:`bluetooth_mesh_light_switch`
+* :ref:`bluetooth_ble_peripheral_lbs_coex` sample:
 
-  * Added:
+  * Updated:
 
-    * Support for running the light switch as a Low Power node.
+    * Enabled :kconfig:option:`CONFIG_SOC_FLASH_NRF_PARTIAL_ERASE` configuration option.
+
+* :ref:`bt_mesh_chat` sample:
+
+  * Updated:
+
+    * Enabled :kconfig:option:`CONFIG_SOC_FLASH_NRF_PARTIAL_ERASE` configuration option.
 
 * :ref:`bluetooth_mesh_light` sample:
 
-  * Added:
+  * Updated:
 
-    * Point-to-point Device Firmware Update (DFU) support over the Simple Management Protocol (SMP) for supported nRF52 Series development kits.
+    * Enabled :kconfig:option:`CONFIG_SOC_FLASH_NRF_PARTIAL_ERASE` configuration option.
 
-* :ref:`bluetooth_mesh_sensor_server` sample:
+* :ref:`bluetooth_mesh_light_switch` sample:
 
-  * Added:
+  * Updated:
 
-    * Ability to limit the reported temperatures based on :c:var:`bt_mesh_sensor_dev_op_temp_range_spec` as a setting for the :c:var:`bt_mesh_sensor_present_dev_op_temp` sensor type.
-    * Ability to persistently store the above-mentioned setting.
-    * A sensor descriptor of the temperature sensor.
+    * Enabled :kconfig:option:`CONFIG_SOC_FLASH_NRF_PARTIAL_ERASE` configuration option.
 
 * :ref:`bluetooth_mesh_sensor_client` sample:
 
-  * Added:
+  * Updated:
 
-    * Ability to use buttons to send get and set messages for a sensor setting, as well as a get message for a sensor descriptor.
+    * Enabled :kconfig:option:`CONFIG_SOC_FLASH_NRF_PARTIAL_ERASE` configuration option.
 
-* :ref:`bluetooth_mesh_light_lc`
+* :ref:`bluetooth_mesh_sensor_server` sample:
 
-  * Removed the :c:func:`bt_disable` function call from the interrupt context before calling the :c:func:`emds_store` function.
-  * Replaced the :c:func:`mpsl_uninit` function with :c:func:`mpsl_lib_uninit`.
+  * Updated:
+
+    * Enabled :kconfig:option:`CONFIG_SOC_FLASH_NRF_PARTIAL_ERASE` configuration option.
+
+* :ref:`bluetooth_mesh_light_lc` sample:
+
+  * Updated:
+
+    * Enabled :kconfig:option:`CONFIG_SOC_FLASH_NRF_PARTIAL_ERASE` configuration option.
 
 nRF9160 samples
 ---------------
+
+* :ref:`modem_shell_application` sample:
+
+  * Updated:
+
+    * Timeout command-line arguments for the ``location get`` command changed from integers in milliseconds to floating-point values in seconds.
+
+* :ref:`nrf_cloud_rest_cell_pos_sample` sample:
+
+  * Added:
+
+    * Usage of GCI search option if running modem firmware 1.3.4.
+
+  * Updated:
+
+    * The sample now waits for RRC idle mode before requesting neighbor cell measurements.
 
 * :ref:`lwm2m_client` sample:
 
   * Added:
 
-    * Ability to use buttons to generate location assistance requests.
-    * Documentation on :ref:`lwmwm_client_testing_shell`.
+    * Support for nRF7002 EK shield and Wi-Fi based location.
+    * Location events and event handlers.
 
   * Updated:
 
-    * The sample now uses the new LwM2M location assistance objects through the :ref:`lib_lwm2m_location_assistance` library.
-    * Removed all read callbacks from sensor code because of an issue of read callbacks not working properly when used with LwM2M observations.
-      This is due to the fact that the engine does not know when data is changed.
-    * Sensor samples are now enabled by default for Thingy:91 and disabled by default on nRF9160 DK.
+    * The sensor module has been simplified.
+      It does not use application events, filtering, or configurable periods anymore.
 
-* :ref:`nrf_cloud_rest_cell_pos_sample` sample:
-
-  * Updated:
-
-   * Sample moved from :file:`samples/nrf9160/nrf_cloud_rest_cell_pos` to :file:`samples/nrf9160/nrf_cloud_rest_cell_location`.
-
-* :ref:`modem_shell_application` sample:
+* :ref:`http_application_update_sample`:
 
   * Added:
 
-    * LED 1 (nRF9160 DK)/Purple LED (Thingy:91) is lit for five seconds indicating that a current location has been acquired by using the ``location get`` command.
-    * Overlay files for nRF9160 DK with nRF7002 EK to enable Wi-Fi scanning support.
-      With this configuration, you can, for example, obtain the current location by using the ``location get`` command.
-    * Support for new GCI (Global Cell ID) search types for ``link ncellmeas`` command, which are supported by the modem firmware versions >= 1.3.4.
+    * Support for the :ref:`liblwm2m_carrier_readme` library.
 
-* :ref:`location_sample`:
+* Removed:
 
-  * Added:
-
-    * Overlay files for nRF9160 DK with nRF7002 EK to obtain the current location by using Wi-Fi scanning results.
-
-* :ref:`lte_sensor_gateway` sample:
-
-  * Updated:
-
-    * Added handling for the new data receive events in the :ref:`lib_nrf_cloud` library.
-    * Removed A-GPS and P-GPS processing; it is now handled by the :ref:`lib_nrf_cloud` library.
-
-* :ref:`modem_shell_application` sample:
-
-  * Updated:
-
-    * Added handling for the new data receive events in the :ref:`lib_nrf_cloud` library.
-    * Removed A-GPS and P-GPS processing; it is now handled by the :ref:`lib_nrf_cloud` library.
+  * Multicell location sample because of the deprecation of the Multicell location library.
+    Relevant functionality is available through the :ref:`lib_location` library.
 
 * :ref:`nrf_cloud_mqtt_multi_service` sample:
 
-  * Changed:
+  * Added:
 
-    * Added handling for the new data receive events in the :ref:`lib_nrf_cloud` library.
-    * Removed A-GPS and P-GPS processing; it is now handled by the :ref:`lib_nrf_cloud` library.
+    * MCUboot child image files to properly access external flash on newer nRF9160DK versions.
+    * An :file:``overlay_mcuboot_ext_flash.conf`` file to enable MCUboot use of external flash.
+
+Peripheral samples
+------------------
+
+* :ref:`radio_test` sample:
+
+  * Added support for the nRF7002 board.
+  * Fixed sample building with support for the Skyworks front-end module.
+
+Trusted Firmware-M (TF-M) samples
+---------------------------------
+
+|no_changes_yet_note|
 
 Thread samples
 --------------
 
-* :ref:`ot_cli_sample` sample:
+* Changed:
 
-  * Removed:
-
-    * Thread Certification support files in favor of regular sample overlays.
+  * Overlay structure changed:
+    * ``overlay-rtt.conf`` removed from all samples.
+    * ``overlay-log.conf`` now uses RTT backend by default.
+    * Logs removed from default configuration (moved to ``overlay-logging.conf``)
+    * Asserts removed from default configuration (moved to ``overlay-debug.conf``)
 
 Matter samples
 --------------
 
-* Updated ZAP configuration of the samples to conform with device types defined in Matter 1.0 specification.
+* :ref:`matter_lock_sample`:
 
-* :ref:`matter_light_bulb_sample`:
-
-  * Introduced support for Matter over Wi-Fi on standalone ``nrf7002dk_nrf5340_cpuapp`` and on ``nrf5340dk_nrf5340_cpuapp`` with the ``nrf7002_ek`` shield attached.
+  * Added `thread_wifi_switched` build type that enables switching between Thread and Wi-Fi network support in the field.
 
 NFC samples
 -----------
@@ -334,9 +337,7 @@ NFC samples
 nRF5340 samples
 ---------------
 
-* :ref:`multiprotocol-rpmsg-sample`:
-
-  * Decreased the maximum supported number of concurrent Bluetooth LE connections to 4.
+|no_changes_yet_note|
 
 Gazell samples
 --------------
@@ -351,35 +352,24 @@ Zigbee samples
 Wi-Fi samples
 -------------
 
-* Added:
-
-  * :ref:`wifi_radio_test` sample with the radio test support and :ref:`subcommands for FICR/OTP programming <wifi_ficr_prog>`.
-  * :ref:`wifi_scan_sample` sample that demonstrates how to scan for the access points.
-  * :ref:`wifi_station_sample` sample that demonstrates how to connect the Wi-Fi station to a specified access point.
-  * :ref:`wifi_provisioning` sample that demonstrates how to provision a device with Nordic Semiconductor's Wi-Fi chipsets over Bluetooth® Low Energy.
+|no_changes_yet_note|
 
 Other samples
 -------------
 
 * :ref:`esb_prx_ptx` sample:
 
-  * Removed the FEM support section.
-* Added :ref:`hw_id_sample` sample.
+  * Added:
 
-* :ref:`radio_test` sample:
-
-  * Changed:
-
-    * Front-end module support is now provided by the :ref:`nrfxlib:mpsl_fem` API instead of the custom driver that was part of this sample.
-    * On the nRF5340 development kit, the :ref:`nrf5340_remote_shell` is now a mandatory sample that must be programmed to the application core.
-    * On the nRF5340 development kit, this sample uses the :ref:`shell_ipc_readme` library to forward shell data through the physical application core UART interface.
+    * Support for front-end modules and :ref:`zephyr:nrf21540dk_nrf52840`.
 
 Drivers
 =======
 
 This section provides detailed lists of changes by :ref:`driver <drivers>`.
 
-* Added :ref:`uart_ipc`
+* Reduced log verbosity of :ref:`pmw3360`.
+* Reduced log verbosity of :ref:`paw3212`.
 
 Libraries
 =========
@@ -394,44 +384,17 @@ Binary libraries
 Bluetooth libraries and services
 --------------------------------
 
-* Added:
+* :ref:`mds_readme`:
 
-  * :ref:`cgms_readme` library.
+  * Fixed URI generation in the :c:func:`data_uri_read` function.
 
-* :ref:`bt_le_adv_prov_readme`:
+* :ref:`ble_rpc` library:
 
-  * Added:
+  * Fixed a possible memory leak in the :c:func:`bt_gatt_indicate_rpc_handler` function.
 
-    * Google Fast Pair advertising data provider (:kconfig:option:`CONFIG_BT_ADV_PROV_FAST_PAIR`).
-    * The :kconfig:option:`CONFIG_BT_ADV_PROV_TX_POWER_CORRECTION_VAL` option to TX power advertising data provider (:kconfig:option:`CONFIG_BT_ADV_PROV_TX_POWER`).
-      The option adds a predefined value to the TX power, that is included in the advertising data.
-    * The :kconfig:option:`CONFIG_BT_ADV_PROV_GAP_APPEARANCE_SD` option to GAP appearance data provider (:kconfig:option:`CONFIG_BT_ADV_PROV_GAP_APPEARANCE`).
-      The option can be used to move the GAP appearance value to the scan response data.
-    * The :kconfig:option:`CONFIG_BT_ADV_PROV_DEVICE_NAME_SD` option to Bluetooth device name data provider (:kconfig:option:`CONFIG_BT_ADV_PROV_DEVICE_NAME`).
-      The option can be used to move the Bluetooth device name to the advertising data.
+* :ref:`bt_le_adv_prov_readme` library:
 
-  * Changed :c:member:`bt_le_adv_prov_adv_state.bond_cnt` to :c:member:`bt_le_adv_prov_adv_state.pairing_mode`.
-    The information about whether the advertising device is looking for a new peer is more meaningful for the Bluetooth LE data providers.
-
-* :ref:`bt_mesh` library:
-
-  * Bluetooth mesh client models updated to reflect the changed mesh shell module structure.
-    All Bluetooth mesh model commands are now located under **mesh models** in the shell menu.
-
-  * :ref:`bt_mesh_dk_prov` module: Changed the UUID generation to prevent trailing zeros in the UUID.
-
-    Migration note: To retain the legacy generation of UUID, enable the option :kconfig:option:`CONFIG_BT_MESH_DK_LEGACY_UUID_GEN`.
-
-See `Bluetooth mesh samples`_ for the list of changes for the Bluetooth mesh samples.
-
-* :ref:`nrf_bt_scan_readme`:
-
-  * Added the ability to use the module when the Bluetooth Observer role is enabled.
-
-* :ref:`bt_fast_pair_readme` service:
-
-  * Disabled automatic security re-establishment request as a peripheral (:kconfig:option:`CONFIG_BT_GATT_AUTO_SEC_REQ`) to allow the Fast Pair Seeker to control the security re-establishment.
-  * Added API to check Account Key presence (:c:func:`bt_fast_pair_has_account_key`).
+  * Changed the :kconfig:option:`CONFIG_BT_ADV_PROV_FAST_PAIR_BATTERY_DATA_MODE` Kconfig option (default value) to not include Fast Pair battery data in the Fast Pair advertising payload by default.
 
 Bootloader libraries
 --------------------
@@ -441,135 +404,121 @@ Bootloader libraries
 Modem libraries
 ---------------
 
-* :ref:`modem_info_readme` library:
-
-  * Removed:
-
-    * :c:func:`modem_info_json_string_encode` and :c:func:`modem_info_json_object_encode` functions.
-    * network_mode field from :c:struct:`network_param`.
-    * ``MODEM_INFO_NETWORK_MODE_MAX_SIZE``.
-    * ``CONFIG_MODEM_INFO_ADD_BOARD``.
-
-* :ref:`nrf_modem_lib_readme` library:
-
-  * Added:
-
-    * The :kconfig:option:`CONFIG_NRF_MODEM_LIB_IPC_IRQ_PRIO_OVERRIDE` Kconfig option to override the IPC IRQ priority from the devicetree.
-    * The :kconfig:option:`CONFIG_NRF_MODEM_LIB_IPC_IRQ_PRIO` Kconfig option to configure the IPC IRQ priority when the Kconfig option :kconfig:option:`CONFIG_NRF_MODEM_LIB_IPC_IRQ_PRIO_OVERRIDE` is enabled.
-    * The :kconfig:option:`CONFIG_NRF_MODEM_LIB_TRACE_BACKEND_BITRATE` Kconfig option to enable the measurement of the modem trace backend bitrate.
-    * The :kconfig:option:`CONFIG_NRF_MODEM_LIB_TRACE_BACKEND_BITRATE_LOG` Kconfig option to enable logging of the modem trace backend bitrate.
-    * The :kconfig:option:`CONFIG_NRF_MODEM_LIB_TRACE_BITRATE_LOG` Kconfig option to enable logging of the modem trace bitrate.
-
-  * Updated:
-
-    * The IPC IRQ priority is now set using the devicetree.
-    * The EGU peripheral is no longer used to generate software interrupts to process network data.
-    * The :c:func:`getaddrinfo` function to return ``EAFNOSUPPORT`` instead of ``EPROTONOSUPPORT`` when socket family is not supported.
-    * The :c:func:`bind` function to return ``EAFNOSUPPORT`` instead of ``ENOTSUP`` when socket family is not supported.
-    * The :c:func:`sendto` function to return ``EAFNOSUPPORT`` instead of ``ENOTSUP`` when socket family is not supported.
-    * The :c:func:`connect` function to not override the error codes set by the Modem library when called with raw parameters (non-IP).
-
-  * Fixed:
-
-    * An issue where the :c:func:`getsockopt` function causes segmentation fault when the ``optlen`` parameter is provided as ``NULL``.
-    * An issue where the :c:func:`recvfrom` function causes segmentation fault when the ``from`` and ``fromlen`` parameters are provided as ``NULL``.
-
 * :ref:`lib_location` library:
 
-  * Added timeout for the entire location request.
-
-* :ref:`lte_lc_readme` library:
-
-  * Added support for GCI (Global Cell ID) neighbor cell measurement search types, which are supported by the modem firmware versions >= 1.3.4.
-
-    Parameter type in :c:func:`lte_lc_neighbor_cell_measurement` changed to :c:struct:`lte_lc_ncellmeas_params`.
-    It includes both search type and GCI count that have an impact only with GCI search types.
-
-* :ref:`modem_key_mgmt` library:
-
   * Added:
 
-    * The ``-EALREADY`` return value for the :c:func:`modem_key_mgmt_write` function when the credential already exists and cannot be overwritten.
-    * The ``-ECANCELED`` return value for the :c:func:`modem_key_mgmt_write` and :c:func:`modem_key_mgmt_delete` functions when the voltage is low.
+    * Support for the application to send the Wi-Fi access point list to the cloud.
+    * Introduced the :kconfig:option:`CONFIG_LOCATION_SERVICE_EXTERNAL` Kconfig option that replaces the following configurations that are removed:
+
+      * ``CONFIG_LOCATION_METHOD_GNSS_AGPS_EXTERNAL``
+      * ``CONFIG_LOCATION_METHOD_GNSS_PGPS_EXTERNAL``
+      * ``CONFIG_LOCATION_METHOD_CELLULAR_EXTERNAL``
+
+      The new configuration handles also Wi-Fi positioning.
 
   * Updated:
 
-    * All the functions to return ``-EACCES`` instead of ``-EPERM`` when the access to the credential is not allowed.
-    * All the functions to return ``-EPERM`` instead of ``-EACCES`` when the operation is not permitted because the LTE link is active.
+    * Use of :ref:`lib_multicell_location` library has been removed because the library is deprecated.
+      Relevant functionality from the library is moved to this library.
+      The following features were not copied:
+
+      * Definition of HTTPS port for HERE service, that is :kconfig:option:`CONFIG_MULTICELL_LOCATION_HERE_HTTPS_PORT`.
+      * HERE v1 API.
+      * nRF Cloud CA certificate handling.
+
+    * Renamed ``enum location_cellular_ext_result`` to ``enum location_ext_result``, because Wi-Fi will use the same enumeration.
+    * Renamed ``CONFIG_LOCATION_METHOD_WIFI_SERVICE_NRF_CLOUD`` to :kconfig:option:`CONFIG_LOCATION_SERVICE_NRF_CLOUD`.
+    * Renamed ``CONFIG_LOCATION_METHOD_WIFI_SERVICE_HERE`` to :kconfig:option:`CONFIG_LOCATION_SERVICE_HERE`.
+    * Renamed ``CONFIG_LOCATION_METHOD_WIFI_SERVICE_HERE_API_KEY`` to :kconfig:option:`CONFIG_LOCATION_SERVICE_HERE_API_KEY`.
+    * Renamed ``CONFIG_LOCATION_METHOD_WIFI_SERVICE_HERE_HOSTNAME`` to :kconfig:option:`CONFIG_LOCATION_SERVICE_HERE_HOSTNAME`.
+    * Renamed ``CONFIG_LOCATION_METHOD_WIFI_SERVICE_HERE_TLS_SEC_TAG`` to :kconfig:option:`CONFIG_LOCATION_SERVICE_HERE_TLS_SEC_TAG`.
+    * Improved GNSS assistance data need handling.
 
 Libraries for networking
 ------------------------
 
 * :ref:`lib_multicell_location` library:
 
-  * Removed the Kconfig option :kconfig:option:`CONFIG_MULTICELL_LOCATION_MAX_NEIGHBORS`.
-    The maximum number of supported neighbor cell measurements for HERE location services depends on the :kconfig:option:`CONFIG_LTE_NEIGHBOR_CELLS_MAX` Kconfig option.
-
-* :ref:`lib_download_client` library:
-
-  * Updated the library so that it does not retry download on disconnect.
-  * Fixed a race condition when starting the download.
-
-* :ref:`lib_nrf_cloud` library:
-
-  * Added:
-
-    * Added a possibility to override used default OS memory alloc/free functions.
-
-  * Updated:
-
-    * The stack size of the MQTT connection monitoring thread can now be adjusted by setting the :kconfig:option:`CONFIG_NRF_CLOUD_CONNECTION_POLL_THREAD_STACK_SIZE` Kconfig option.
-    * The library now subscribes to a wildcard cloud-to-device (/c2d) topic.
-      This enables the device to receive nRF Cloud Location Services data on separate topics.
-    * Replaced event :c:enum:`NRF_CLOUD_EVT_RX_DATA` with :c:enum:`NRF_CLOUD_EVT_RX_DATA_GENERAL`.
-    * Added events :c:enum:`NRF_CLOUD_EVT_RX_DATA_CELL_POS` and :c:enum:`NRF_CLOUD_EVT_RX_DATA_SHADOW`.
-    * The library now processes A-GPS and P-GPS data; it is no longer passed to the application.
-    * The status field of :c:enum:`NRF_CLOUD_EVT_ERROR` events uses values from the enumeration :c:enumerator:`nrf_cloud_error_status`.
-
-  * Removed:
-
-    * An unused parameter of the :c:func:`nrf_cloud_connect` function.
-
-* :ref:`lib_lwm2m_client_utils` library:
-
-  * Added support for using X509 certificates.
+  * This library is now deprecated and relevant functionality is available through the :ref:`lib_location` library.
 
 * :ref:`lib_fota_download` library:
 
-  * Added an error code :c:enumerator:`FOTA_DOWNLOAD_ERROR_CAUSE_INTERNAL` to indicate that the source of error is not network related.
+  * Fixed a bug where the :c:func:`download_client_callback` function was continuing to read the offset value even if :c:func:`dfu_target_offset_get` returned an error.
+  * Fixed a bug where the cleanup of the downloading state was not happening when an error event was raised.
 
-* Added:
+* :ref:`lib_nrf_cloud` library:
 
-  * :ref:`lib_lwm2m_location_assistance` library that has support for using A-GPS, P-GPS and ground fix assistance from nRF Cloud using an LwM2M server.
+  * Updated:
+
+    * The MQTT disconnect event is now handled by the FOTA module, allowing for updates to be completed while disconnected and reported properly when reconnected.
+    * GCI search results are now encoded in location requests.
+    * The neighbor cell's time difference value is now encoded in location requests.
+
+  * Fixed:
+
+    * A bug where the same buffer was incorrectly shared between caching a P-GPS prediction and loading a new one, when external flash was used.
+    * A bug where external flash only worked if the P-GPS partition was located at address 0.
+
+* :ref:`lib_lwm2m_location_assistance` library:
+
+  * Added:
+
+    * Support for Wi-Fi based location through LwM2M.
+    * API for scanning Wi-Fi access points.
+
+  * Removed:
+
+    * Location events and event handlers.
 
 Libraries for NFC
 -----------------
 
-|no_changes_yet_note|
+* :ref:`lib_nfc`
+
+  * Updated:
+
+    * Added the possibility of moving an NFC callback to a thread context.
+    * Added support for zero-latency interrupts for NFC.
+    * Aligned the :file:`ncs/nrf/subsys/nfc/lib/platform.c` file with new library implementation.
 
 Other libraries
 ---------------
 
-* Added:
-  * :ref:`lib_sfloat` library.
-  * :ref:`lib_hw_id` library to retrieve a unique hardware ID.
+* :ref:`lib_contin_array` library:
 
-* :ref:`emds_readme`:
+  * Separated the library from the :ref:`nrf53_audio_app` and moved it to :file:`lib/contin_array`.
+    Updated code and documentation accordingly.
 
-  * Removed the internal thread for storing the emergency data.
-    The emergency data is now stored by the :c:func:`emds_store` function.
-  * Changed the library implementation to bypass the flash driver when storing the emergency data.
-    This allows calling the :c:func:`emds_store` function from an interrupt context.
+* :ref:`QoS` library:
+
+  * Removed the ``QOS_MESSAGE_TYPES_REGISTER`` macro.
+
+* :ref:`lib_location` library:
+
+  * Updated:
+
+    * GNSS filtered ephemerides are no longer used when the :kconfig:option:`CONFIG_NRF_CLOUD_AGPS_FILTERED_RUNTIME` Kconfig option is enabled.
+
+  * Fixed:
+
+    * An issue causing the A-GPS data download to be delayed until the RRC connection release.
+
+* Secure Partition Manager (SPM):
+
+  * Removed Secure Partition Manager (SPM) and the Kconfig option ``CONFIG_SPM``.
+    It is replaced by the Trusted Firmware-M (TF-M) as the supported trusted execution solution.
+    See :ref:`Trusted Firmware-M (TF-M) <ug_tfm>` for more information about the TF-M.
+
+* PCM Mix:
+
+  * PCM mix (Pulse Code Modulation) audio mixer has been moved out of the nRF5340 Audio
+    application, and into lib/pcm_mix.
 
 Common Application Framework (CAF)
 ----------------------------------
 
-* :ref:`caf_sensor_manager`:
-
-  * Added:
-
-    * Dynamic control for the :ref:`sensor sample period<sensor_sample_period>`.
-    * Test for the sample.
+|no_changes_yet_note|
 
 Shell libraries
 ---------------
@@ -586,6 +535,11 @@ sdk-nrfxlib
 
 See the changelog for each library in the :doc:`nrfxlib documentation <nrfxlib:README>` for additional information.
 
+DFU libraries
+-------------
+
+|no_changes_yet_note|
+
 Scripts
 =======
 
@@ -593,18 +547,12 @@ This section provides detailed lists of changes by :ref:`script <scripts>`.
 
 * :ref:`west_sbom`:
 
-  * SPDX License List database updated to version 3.18.
-
-* :ref:`partition_manager`:
-
-  * Added:
-
-    * :kconfig:option:`CONFIG_PM_PARTITION_ALIGN_SETTINGS_STORAGE` Kconfig option to specify the alignment of the settings storage partition.
+  * Output now contains source repository and version information for each file.
 
 MCUboot
 =======
 
-The MCUboot fork in |NCS| (``sdk-mcuboot``) contains all commits from the upstream MCUboot repository up to and including ``cfec947e0f8be686d02c73104a3b1ad0b5dcf1e6``, plus some |NCS| specific additions.
+The MCUboot fork in |NCS| (``sdk-mcuboot``) contains all commits from the upstream MCUboot repository up to and including ``cfec947e0f8be686d02c73104a3b1ad0b5dcf1e6``, with some |NCS| specific additions.
 
 The code for integrating MCUboot into |NCS| is located in the :file:`ncs/nrf/modules/mcuboot` folder.
 
@@ -617,13 +565,13 @@ Zephyr
 
 .. NOTE TO MAINTAINERS: All the Zephyr commits in the below git commands must be handled specially after each upmerge and each NCS release.
 
-The Zephyr fork in |NCS| (``sdk-zephyr``) contains all commits from the upstream Zephyr repository up to and including ``cd16a8388f71a6cce0cea871f75f6d4ac8f56da9``, plus some |NCS| specific additions.
+The Zephyr fork in |NCS| (``sdk-zephyr``) contains all commits from the upstream Zephyr repository up to and including ``e1e06d05fa8d1b6ac1b0dffb1712e94e308861f8``, with some |NCS| specific additions.
 
 For the list of upstream Zephyr commits (not including cherry-picked commits) incorporated into nRF Connect SDK since the most recent release, run the following command from the :file:`ncs/zephyr` repository (after running ``west update``):
 
 .. code-block:: none
 
-   git log --oneline cd16a8388f ^45ef0d2
+   git log --oneline cd16a8388f ^71ef669ea4
 
 For the list of |NCS| specific commits, including commits cherry-picked from upstream, run:
 
@@ -636,38 +584,28 @@ The current |NCS| main branch is based on revision ``cd16a8388f`` of Zephyr.
 Additions specific to |NCS|
 ---------------------------
 
-* |no_changes_yet_note|
+|no_changes_yet_note|
 
 zcbor
 =====
 
-* |no_changes_yet_note|
+|no_changes_yet_note|
 
 Trusted Firmware-M
 ==================
 
-* |no_changes_yet_note|
+|no_changes_yet_note|
 
 cJSON
 =====
 
-* |no_changes_yet_note|
+|no_changes_yet_note|
 
 Documentation
 =============
 
 * Added:
 
-  * :ref:`app_memory`: Configuration options affecting memory footprint for Bluetooth mesh, that can be used to optimize the application.
-  * Documentation for the :ref:`lib_bh1749`.
-  * The :ref:`ug_nrf52_gs` page.
-  * :ref:`ug_bt_mesh_node_removal` page in the :ref:`ug_bt_mesh` user guide.
-
-* Updated:
-
-  * :ref:`gs_assistant` steps to reflect the fact that the |nRFVSC| is the default recommended IDE.
-  * :ref:`ug_matter_gs_adding_cluster` documentation with new code snippets to align it with the source code of refactored Matter template sample.
-  * Split the existing Working with the nRF52 Series information into :ref:`ug_nrf52_features` and :ref:`ug_nrf52_developing`.
-  * :ref:`ug_tfm` with improved TF-M logging documentation on getting the secure output on nRF5340 DK.
+  * Documentation template for the :ref:`Ecosystem integration <Ecosystem_integration>` user guides.
 
 .. |no_changes_yet_note| replace:: No changes since the latest |NCS| release.

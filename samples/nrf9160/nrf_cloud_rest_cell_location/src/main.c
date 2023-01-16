@@ -37,6 +37,10 @@ LOG_MODULE_REGISTER(nrf_cloud_rest_cell_location_sample,
 #define MFWV_MAJ_EXT_SRCH	1
 #define MFWV_MIN_EXT_SRCH	3
 #define MFWV_REV_EXT_SRCH	1
+/* Modem FW version required for extended GCI neighbor cells search */
+#define MFWV_MAJ_EXT_SRCH_GCI	1
+#define MFWV_MIN_EXT_SRCH_GCI	3
+#define MFWV_REV_EXT_SRCH_GCI	4
 
 /* Semaphore to indicate a button has been pressed */
 static K_SEM_DEFINE(button_press_sem, 0, 1);
@@ -69,13 +73,16 @@ static struct nrf_cloud_rest_context rest_ctx = {
 };
 
 /* Type of data to be sent in the cellular positioning request */
-enum nrf_cloud_cell_pos_type active_cell_pos_type = CELL_POS_TYPE_SINGLE;
+enum nrf_cloud_location_type active_cell_pos_type = LOCATION_TYPE_SINGLE_CELL;
 
 /* Search type used for neighbor cell measurements; modem FW version depenedent */
 static enum lte_lc_neighbor_search_type search_type = LTE_LC_NEIGHBOR_SEARCH_TYPE_DEFAULT;
 
 /* Buffer to hold neighbor cell measurement data for multi-cell requests */
 static struct lte_lc_ncell neighbor_cells[CONFIG_LTE_NEIGHBOR_CELLS_MAX];
+
+/* Buffer to hold GCI cell measurement data for multi-cell requests */
+static struct lte_lc_cell gci_cells[CONFIG_REST_CELL_GCI_COUNT];
 
 /* Modem info struct used for modem FW version and cell info used for single-cell requests */
 static struct modem_param_info mdm_param;
@@ -84,12 +91,19 @@ static struct modem_param_info mdm_param;
 static struct lte_lc_cells_info cell_info;
 
 /* REST request structure to contain cell info to be sent to nRF Cloud */
-static struct nrf_cloud_rest_cell_pos_request cell_pos_req = {
-	.net_info = &cell_info
+static struct nrf_cloud_rest_location_request cell_pos_req = {
+	.cell_info = &cell_info,
+	.wifi_info = NULL
 };
 
 /* Flag to indicate that the device is ready to perform requests */
 static bool ready;
+
+/* Current RRC mode */
+static enum lte_lc_rrc_mode cur_rrc_mode = LTE_LC_RRC_MODE_IDLE;
+
+/* Flag to indicate that a neighbor cell measurement should be taken once RRC mode is idle */
+static bool rrc_idle_wait;
 
 /* Flag to indicate if the device shadow should be updated so that the location card
  * is displayed on nrfcloud.com
@@ -147,9 +161,12 @@ static void check_modem_fw_version(void)
 		k_sleep(K_FOREVER);
 	}
 
-	/* Enable extended search if modem fw version allows */
-	if (ver_check(MFWV_MAJ_EXT_SRCH, MFWV_MIN_EXT_SRCH, MFWV_REV_EXT_SRCH,
-		       major, minor, rev)) {
+	/* Enable GCI/extended search if modem fw version allows */
+	if (ver_check(MFWV_MAJ_EXT_SRCH_GCI, MFWV_MIN_EXT_SRCH_GCI, MFWV_REV_EXT_SRCH_GCI,
+		      major, minor, rev)) {
+		search_type = LTE_LC_NEIGHBOR_SEARCH_TYPE_GCI_EXTENDED_COMPLETE;
+	} else if (ver_check(MFWV_MAJ_EXT_SRCH, MFWV_MIN_EXT_SRCH, MFWV_REV_EXT_SRCH,
+			     major, minor, rev)) {
 		search_type = LTE_LC_NEIGHBOR_SEARCH_TYPE_EXTENDED_COMPLETE;
 	}
 }
@@ -162,7 +179,7 @@ static void get_cell_info(void)
 
 	int err;
 
-	if (active_cell_pos_type == CELL_POS_TYPE_SINGLE) {
+	if (active_cell_pos_type == LOCATION_TYPE_SINGLE_CELL) {
 		LOG_INF("Getting current cell info...");
 
 		/* Use the modem info library to easily obtain the required network info
@@ -184,9 +201,9 @@ static void get_cell_info(void)
 		/* Optional */
 		cell_info.current_cell.rsrp	= mdm_param.network.rsrp.value;
 		/* Omitted - optional parameters not available from modem_info */
-		cell_info.current_cell.timing_advance	= NRF_CLOUD_CELL_POS_OMIT_TIME_ADV;
-		cell_info.current_cell.rsrq		= NRF_CLOUD_CELL_POS_OMIT_RSRQ;
-		cell_info.current_cell.earfcn		= NRF_CLOUD_CELL_POS_OMIT_EARFCN;
+		cell_info.current_cell.timing_advance	= NRF_CLOUD_LOCATION_CELL_OMIT_TIME_ADV;
+		cell_info.current_cell.rsrq		= NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ;
+		cell_info.current_cell.earfcn		= NRF_CLOUD_LOCATION_CELL_OMIT_EARFCN;
 		(void)k_mutex_unlock(&cell_info_mutex);
 
 		k_sem_give(&cell_info_ready_sem);
@@ -194,15 +211,49 @@ static void get_cell_info(void)
 	} else {
 		struct lte_lc_ncellmeas_params ncellmeas_params = {
 			.search_type = search_type,
+			.gci_count = CONFIG_REST_CELL_GCI_COUNT
 		};
 
-		LOG_INF("Requesting neighbor cell measurement...");
+		/* Set the result buffers */
 		cell_info.neighbor_cells = neighbor_cells;
+		cell_info.gci_cells = gci_cells;
+
+		LOG_INF("Requesting neighbor cell measurement");
 		err = lte_lc_neighbor_cell_measurement(&ncellmeas_params);
 		if (err) {
 			LOG_ERR("Failed to start neighbor cell measurement, error: %d", err);
+		} else {
+			LOG_INF("Waiting for measurement results...");
 		}
 	}
+}
+
+static void process_cell_pos_type_change(void)
+{
+	if (!ready) {
+		return;
+	}
+
+	/* Toggle active cell pos type */
+	if (active_cell_pos_type == LOCATION_TYPE_SINGLE_CELL) {
+		if (cur_rrc_mode == LTE_LC_RRC_MODE_IDLE) {
+			/* RRC is idle, switch to multi-cell type */
+			active_cell_pos_type = LOCATION_TYPE_MULTI_CELL;
+		} else if (rrc_idle_wait == false) {
+			LOG_INF("Waiting for RRC idle mode "
+				"before requesting neighbor cell measurement...");
+			/* Wait for RRC idle. If this function is called before
+			 * idle, the wait is cancelled and single-cell is used.
+			 */
+			rrc_idle_wait = true;
+			return;
+		}
+	} else {
+		active_cell_pos_type = LOCATION_TYPE_SINGLE_CELL;
+	}
+
+	rrc_idle_wait = false;
+	get_cell_info();
 }
 
 static bool app_event_handler(const struct app_event_header *aeh)
@@ -217,17 +268,7 @@ static bool app_event_handler(const struct app_event_header *aeh)
 
 	LOG_DBG("Button pressed");
 
-	if (ready) {
-		/* Toggle active cell pos type */
-		if (active_cell_pos_type == CELL_POS_TYPE_SINGLE) {
-			active_cell_pos_type = CELL_POS_TYPE_MULTI;
-		} else {
-			active_cell_pos_type = CELL_POS_TYPE_SINGLE;
-		}
-
-		/* Get latest cell info on button press */
-		get_cell_info();
-	}
+	process_cell_pos_type_change();
 
 	k_sem_give(&button_press_sem);
 
@@ -331,8 +372,9 @@ static void request_location_card_enable(void)
 static void do_location_card_enable(void)
 {
 	int err;
+
 	struct nrf_cloud_svc_info_ui ui = {
-		.gps = 1
+		.gnss = 1
 	};
 	struct nrf_cloud_svc_info svc_inf = {
 		.fota = NULL,
@@ -440,6 +482,12 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		get_cell_info();
 
 		break;
+	case LTE_LC_EVT_RRC_UPDATE:
+		cur_rrc_mode = evt->rrc_mode;
+		if (rrc_idle_wait && (cur_rrc_mode == LTE_LC_RRC_MODE_IDLE)) {
+			process_cell_pos_type_change();
+		}
+		break;
 	case LTE_LC_EVT_NEIGHBOR_CELL_MEAS:
 		if (evt->cells_info.current_cell.id == LTE_LC_CELL_EUTRAN_ID_INVALID) {
 			LOG_WRN("Current cell ID not valid in neighbor cell measurement results");
@@ -452,9 +500,8 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		       &evt->cells_info.current_cell,
 		       sizeof(cell_info.current_cell));
 
-		cell_info.ncells_count = evt->cells_info.ncells_count;
-
 		/* Copy neighbor cell information if present. */
+		cell_info.ncells_count = evt->cells_info.ncells_count;
 		if ((evt->cells_info.ncells_count > 0) && (evt->cells_info.neighbor_cells)) {
 			memcpy(neighbor_cells,
 			       evt->cells_info.neighbor_cells,
@@ -464,6 +511,19 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		} else {
 			LOG_WRN("No neighbor cells were measured");
 		}
+
+		/* Copy GCI cell information if present. */
+		cell_info.gci_cells_count = evt->cells_info.gci_cells_count;
+		if ((evt->cells_info.gci_cells_count > 0) && (evt->cells_info.gci_cells)) {
+			memcpy(gci_cells,
+			       evt->cells_info.gci_cells,
+			       sizeof(gci_cells[0]) * cell_info.gci_cells_count);
+			LOG_INF("Received measurements for %u GCI cells",
+				cell_info.gci_cells_count);
+		} else if (search_type == LTE_LC_NEIGHBOR_SEARCH_TYPE_GCI_EXTENDED_COMPLETE) {
+			LOG_WRN("No GCI cells were measured");
+		}
+
 		(void)k_mutex_unlock(&cell_info_mutex);
 		k_sem_give(&cell_info_ready_sem);
 
@@ -540,7 +600,7 @@ void main(void)
 	get_cell_info();
 
 	while (1) {
-		struct nrf_cloud_cell_pos_result cell_pos_result;
+		struct nrf_cloud_location_result cell_pos_result;
 
 		/* Wait for cell info to become available; triggered by
 		 * a button press or a change in cell ID.
@@ -553,15 +613,16 @@ void main(void)
 			cell_info.current_cell.id, cell_info.current_cell.tac,
 			cell_info.current_cell.mcc, cell_info.current_cell.mnc);
 
-		if (cell_info.ncells_count) {
-			LOG_INF("Performing multi-cell request with %u neighbor cells",
-				cell_info.ncells_count);
+		if (cell_info.ncells_count || cell_info.gci_cells_count) {
+			LOG_INF("Performing multi-cell request with "
+				"%u neighbor cells and %u GCI cells",
+				cell_info.ncells_count, cell_info.gci_cells_count);
 		} else {
 			LOG_INF("Performing single-cell request");
 		}
 
 		/* Perform REST call */
-		err = nrf_cloud_rest_cell_pos_get(&rest_ctx, &cell_pos_req, &cell_pos_result);
+		err = nrf_cloud_rest_location_get(&rest_ctx, &cell_pos_req, &cell_pos_result);
 
 		(void)k_mutex_unlock(&cell_info_mutex);
 
@@ -574,9 +635,9 @@ void main(void)
 		}
 
 		LOG_INF("Cellular location request fulfilled with %s",
-			cell_pos_result.type == CELL_POS_TYPE_SINGLE ? "single-cell" :
-			cell_pos_result.type == CELL_POS_TYPE_MULTI ?  "multi-cell" :
-								       "unknown");
+			cell_pos_result.type == LOCATION_TYPE_SINGLE_CELL ? "single-cell" :
+			cell_pos_result.type == LOCATION_TYPE_MULTI_CELL ?  "multi-cell" :
+									    "unknown");
 
 		LOG_INF("Lat: %f, Lon: %f, Uncertainty: %u",
 			cell_pos_result.lat,

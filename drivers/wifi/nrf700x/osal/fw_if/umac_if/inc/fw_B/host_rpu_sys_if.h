@@ -35,7 +35,6 @@
 #define ENABLE_VHT_FORMAT 0x10
 #define ENABLE_CHNL_WIDTH_80MHZ 0x20
 
-#define MAX_TX_TOKENS 5
 #define MAX_TX_AGG_SIZE 16
 #define MAX_RX_BUFS_PER_EVNT 64
 #define MAX_MGMT_BUFS 16
@@ -135,7 +134,6 @@ enum rpu_op_mode {
  *
  * To obtain statistics relevant to the operation mode set via op_mode
  * parameter.
- * Statistics will be updated in: /sys/kernel/debug/img/wlan/stats
  */
 
 enum rpu_stats_type {
@@ -158,6 +156,7 @@ enum rpu_tput_mode {
 	RPU_TPUT_MODE_VHT,
 	RPU_TPUT_MODE_HE_SU,
 	RPU_TPUT_MODE_HE_ER_SU,
+	RPU_TPUT_MODE_HE_TB,
 	RPU_TPUT_MODE_MAX
 };
 
@@ -172,7 +171,7 @@ enum rpu_tput_mode {
  * @NRF_WIFI_CMD_MODE: command to specify mode of operation
  * @NRF_WIFI_CMD_GET_STATS: command to get statistics
  * @NRF_WIFI_CMD_CLEAR_STATS: command to clear statistics
- * @NRF_WIFI_CMD_RX: command to ENABLE/DISABLE receiving packets in production mode
+ * @NRF_WIFI_CMD_RX: command to ENABLE/DISABLE receiving packets in radio test mode
  * @NRF_WIFI_CMD_DEINIT: RPU De-initialization
  * @NRF_WIFI_CMD_HE_GI_LTF_CONFIG: Configure HE_GI & HE_LTF.
  *
@@ -190,7 +189,8 @@ enum nrf_wifi_sys_commands {
 	NRF_WIFI_CMD_BTCOEX,
 	NRF_WIFI_CMD_RF_TEST,
 	NRF_WIFI_CMD_HE_GI_LTF_CONFIG,
-	NRF_WIFI_CMD_UMAC_INT_STATS
+	NRF_WIFI_CMD_UMAC_INT_STATS,
+	NRF_WIFI_CMD_RADIO_TEST_INIT,
 };
 
 /**
@@ -371,10 +371,24 @@ struct umac_cmd_evnt_dbg_params {
 
 #ifndef CONFIG_NRF700X_RADIO_TEST
 
+struct nrf_wifi_interface_stats {
+	unsigned int tx_unicast_pkt_count;
+	unsigned int tx_multicast_pkt_count;
+	unsigned int tx_broadcast_pkt_count;
+	unsigned int tx_bytes;
+	unsigned int rx_unicast_pkt_count;
+	unsigned int rx_multicast_pkt_count;
+	unsigned int rx_broadcast_pkt_count;
+	unsigned int rx_beacon_success_count;
+	unsigned int rx_beacon_miss_count;
+	unsigned int rx_bytes;
+} __NRF_WIFI_PKD;
+
 struct rpu_umac_stats {
 	struct umac_tx_dbg_params tx_dbg_params;
 	struct umac_rx_dbg_params rx_dbg_params;
 	struct umac_cmd_evnt_dbg_params cmd_evnt_dbg_params;
+	struct nrf_wifi_interface_stats interface_data_stats;
 } __NRF_WIFI_PKD;
 
 struct rpu_lmac_stats {
@@ -495,12 +509,15 @@ enum max_rx_ampdu_size {
 /**
  * struct nrf_wifi_data_config_params - Data config parameters
  * @rate_protection_type:0->NONE, 1->RTS/CTS, 2->CTS2SELF
- * @aggregation: Enable or disable aggregation
- * @wmm: WMM is enabled(NRF_WIFI_FEATURE_ENABLE) or disabled(NRF_WIFI_FEATURE_DISABLE)
+ * @aggregation: Agreegation is enabled(NRF_WIFI_FEATURE_ENABLE) or disabled
+ *		(NRF_WIFI_FEATURE_DISABLE)
+ * @wmm: WMM is enabled(NRF_WIFI_FEATURE_ENABLE) or disabled
+ *		(NRF_WIFI_FEATURE_DISABLE)
  * @max_num_tx_agg_sessions: Max number of aggregated TX sessions
  * @max_num_rx_agg_sessions: Max number of aggregated RX sessions
  * @reorder_buf_size: Reorder buffer size (1 to 64)
- * @max_rxampdu_size: Max RX AMPDU size (8/16/32/64 KB), see enum max_rx_ampdu_size
+ * @max_rxampdu_size: Max RX AMPDU size (8/16/32/64 KB), see
+ *					enum max_rx_ampdu_size
  *
  * Data configuration parameters provided in command NRF_WIFI_CMD_INIT
  */
@@ -666,6 +683,14 @@ struct rpu_conf_params {
 	unsigned int rts_threshold;
 	unsigned int uapsd_queue;
 	unsigned int tx_pkt_gap_us;
+	unsigned char wlan_ant_switch_ctrl;
+	unsigned char ble_ant_switch_ctrl;
+	unsigned char ru_tone;
+	unsigned char ru_index;
+	signed char tx_tone_freq;
+	unsigned char lna_gain;
+	unsigned char bb_gain;
+	unsigned short int capture_length;
 } __NRF_WIFI_PKD;
 
 /**
@@ -683,11 +708,29 @@ struct nrf_wifi_cmd_mode_params {
 	unsigned int ddr_ptrs[MAX_TX_AGG_SIZE];
 } __NRF_WIFI_PKD;
 
+/**
+ * struct nrf_wifi_cmd_radio_test_init - command radio_test_init
+ * @sys_head: UMAC header, See &struct nrf_wifi_sys_head
+ * @conf: radiotest init configuration parameters
+ * see &struct nrf_wifi_radio_test_init_info
+ *
+ */
+struct nrf_wifi_radio_test_init_info {
+	unsigned char rf_params[NRF_WIFI_RF_PARAMS_SIZE];
+	struct chan_params chan;
+	signed char phy_threshold;
+	unsigned int phy_calib;
+} __NRF_WIFI_PKD;
+
+struct nrf_wifi_cmd_radio_test_init {
+	struct nrf_wifi_sys_head sys_head;
+	struct nrf_wifi_radio_test_init_info conf;
+} __NRF_WIFI_PKD;
 
 /**
  * struct nrf_wifi_cmd_rx - command rx
  * @sys_head: UMAC header, See &struct nrf_wifi_sys_head
- * @conf: rx configuration parameters see &struct rpu_conf_rx_prod_mode_params
+ * @conf: rx configuration parameters see &struct rpu_conf_rx_radio_test_params
  * @:rx_enable: 1-Enable Rx to receive packets contineously on specified channel
  *	0-Disable Rx stop receiving packets and clear statistics
  *
@@ -735,10 +778,8 @@ struct nrf_wifi_cmd_pwr {
 } __NRF_WIFI_PKD;
 
 struct rpu_btcoex {
-	signed int coex_cmd_ctrl;
-	signed int bt_mode;
-	signed int bt_ctrl;
-	struct pta_ext_params pta_params;
+	signed int rpu_msg_id;
+	signed int switch_A;
 } __NRF_WIFI_PKD;
 
 struct nrf_wifi_cmd_btcoex {
@@ -792,6 +833,7 @@ struct nrf_wifi_event_pwr_data {
 	signed int data_type;
 	struct nrf_wifi_rpu_pwr_data data;
 } __NRF_WIFI_PKD;
+
 
 /**
  * struct rpu_fw_stats - FW statistics

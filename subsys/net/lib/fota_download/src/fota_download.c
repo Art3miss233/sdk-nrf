@@ -16,9 +16,7 @@
 #if defined(PM_S1_ADDRESS) || defined(CONFIG_DFU_TARGET_MCUBOOT)
 /* MCUBoot support is required */
 #include <fw_info.h>
-#ifdef CONFIG_SPM
-#include <secure_services.h>
-#elif CONFIG_BUILD_WITH_TFM
+#if CONFIG_BUILD_WITH_TFM
 #include <tfm_ioctl_api.h>
 #endif
 #include <dfu/dfu_target_mcuboot.h>
@@ -35,7 +33,7 @@
 LOG_MODULE_REGISTER(fota_download, CONFIG_FOTA_DOWNLOAD_LOG_LEVEL);
 
 static fota_download_callback_t callback;
-static struct download_client   dlc;
+static struct download_client dlc;
 static struct k_work_delayable  dlc_with_offset_work;
 static int socket_retries_left;
 #ifdef CONFIG_DFU_TARGET_MCUBOOT
@@ -63,6 +61,7 @@ static void send_error_evt(enum fota_download_error_cause cause)
 		.id = FOTA_DOWNLOAD_EVT_ERROR,
 		.cause = cause
 	};
+	first_fragment = true;
 	downloading = false;
 	callback(&evt);
 }
@@ -117,12 +116,11 @@ static int download_client_callback(const struct download_client_evt *event)
 			img_type = dfu_target_img_type(event->fragment.buf,
 							event->fragment.len);
 
-			if (img_type < 0) {
+			if (img_type == DFU_TARGET_IMAGE_TYPE_NONE) {
 				LOG_ERR("Unknown image type");
 				err_cause = FOTA_DOWNLOAD_ERROR_CAUSE_INVALID_UPDATE;
 				err = -EFAULT;
-			} else if ((img_type_expected != DFU_TARGET_IMAGE_TYPE_ANY) &&
-			    (img_type_expected != img_type)) {
+			} else if ((img_type & img_type_expected) != img_type) {
 				LOG_ERR("FOTA image type %d does not match expected type %d",
 					img_type, img_type_expected);
 				err_cause = FOTA_DOWNLOAD_ERROR_CAUSE_TYPE_MISMATCH;
@@ -157,6 +155,8 @@ static int download_client_callback(const struct download_client_evt *event)
 				LOG_DBG("unable to get dfu target offset err: "
 					"%d", err);
 				send_error_evt(FOTA_DOWNLOAD_ERROR_CAUSE_DOWNLOAD_FAILED);
+
+				return -1;
 			}
 
 			if (offset != 0) {
@@ -211,7 +211,7 @@ static int download_client_callback(const struct download_client_evt *event)
 
 	case DOWNLOAD_CLIENT_EVT_DONE:
 		err = dfu_target_done(true);
-		if (err == 0) {
+		if (err == 0 && IS_ENABLED(CONFIG_FOTA_CLIENT_AUTOSCHEDULE_UPDATE)) {
 			err = dfu_target_schedule_update(0);
 		}
 
@@ -487,9 +487,7 @@ int fota_download_cancel(void)
 {
 	int err;
 
-	downloading = false;
-
-	if (dlc.fd == -1) {
+	if (!downloading) {
 		/* Download not started, aborted or completed */
 		LOG_WRN("%s invalid state", __func__);
 		return -EAGAIN;
@@ -500,6 +498,7 @@ int fota_download_cancel(void)
 		LOG_ERR("%s failed to disconnect: %d", __func__, err);
 		return err;
 	}
+	downloading = false;
 
 	err = dfu_target_done(false);
 	if (err && err != -EACCES) {

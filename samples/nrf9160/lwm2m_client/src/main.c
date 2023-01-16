@@ -13,10 +13,8 @@
 #include <zephyr/settings/settings.h>
 
 #include <net/lwm2m_client_utils.h>
-#include <net/lwm2m_client_utils_fota.h>
 #include <app_event_manager.h>
 #include <net/lwm2m_client_utils_location.h>
-#include <net/lwm2m_client_utils_location_events.h>
 #include <date_time.h>
 
 #include <zephyr/logging/log.h>
@@ -31,6 +29,7 @@ LOG_MODULE_REGISTER(app_lwm2m_client, CONFIG_APP_LOG_LEVEL);
 #include "sensor_module.h"
 #include "gnss_module.h"
 #include "lwm2m_engine.h"
+#include "location_events.h"
 
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSISTANCE)
 #include "ui_input.h"
@@ -86,6 +85,17 @@ void ncell_meas_work_handler(struct k_work *work)
 	k_work_schedule(&ncell_meas_work, K_SECONDS(CONFIG_APP_NEIGHBOUR_CELL_SCAN_INTERVAL));
 }
 #endif
+#if defined(CONFIG_LWM2M_CLIENT_UTILS_VISIBLE_WIFI_AP_OBJ_SUPPORT)
+static struct k_work_delayable ground_fix_work;
+void ground_fix_work_handler(struct k_work *work)
+{
+	LOG_INF("Send ground fix location request event");
+	struct ground_fix_location_request_event *ground_fix_event =
+	new_ground_fix_location_request_event();
+
+	APP_EVENT_SUBMIT(ground_fix_event);
+}
+#endif
 
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSISTANCE)
 static bool button_callback(const struct app_event_header *aeh)
@@ -108,14 +118,14 @@ defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSIST_PGPS)
 #endif
 			break;
 		case 2:
-#if defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSIST_CELL)
+#if defined(CONFIG_LWM2M_CLIENT_UTILS_GROUND_FIX_OBJ_SUPPORT)
 			LOG_INF("Send cell location request event");
-			struct cell_location_request_event *cell_event =
-				new_cell_location_request_event();
+			struct ground_fix_location_request_event *ground_fix_event =
+				new_ground_fix_location_request_event();
 
-			APP_EVENT_SUBMIT(cell_event);
+			APP_EVENT_SUBMIT(ground_fix_event);
 #else
-			LOG_INF("Cell location not enabled");
+			LOG_INF("Ground fix location not enabled");
 #endif
 			break;
 		}
@@ -216,9 +226,6 @@ static int lwm2m_setup(void)
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_FIRMWARE_UPDATE_OBJ_SUPPORT)
 	lwm2m_init_firmware();
 #endif
-#if defined(CONFIG_LWM2M_CLIENT_UTILS_CONN_MON_OBJ_SUPPORT)
-	lwm2m_init_connmon();
-#endif
 #if defined(CONFIG_LWM2M_APP_LIGHT_CONTROL)
 	lwm2m_init_light_control();
 #endif
@@ -252,19 +259,15 @@ static int lwm2m_setup(void)
 #if defined(CONFIG_LWM2M_PORTFOLIO_OBJ_SUPPORT)
 	lwm2m_init_portfolio_object();
 #endif
-#if defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSISTANCE) && \
-	defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSIST_EVENTS)
+#if defined(CONFIG_LWM2M_CLIENT_UTILS_LOCATION_ASSISTANCE)
 	location_event_handler_init(&client);
+	location_assistance_init_resend_handler();
 #endif
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_CELL_CONN_OBJ_SUPPORT)
 	lwm2m_init_cellular_connectivity_object();
 #endif
 	if (IS_ENABLED(CONFIG_LWM2M_CLIENT_UTILS_RAI)) {
 		lwm2m_init_rai();
-	}
-	if (IS_ENABLED(CONFIG_LTE_LC_TAU_PRE_WARNING_NOTIFICATIONS) ||
-	    IS_ENABLED(CONFIG_LWM2M_CLIENT_UTILS_NEIGHBOUR_CELL_LISTENER)) {
-		lwm2m_ncell_handler_register();
 	}
 	return 0;
 }
@@ -424,6 +427,13 @@ static void modem_connect(void)
 	int ret;
 
 #if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
+	if (!IS_ENABLED(CONFIG_LTE_EDRX_REQ)) {
+		ret = lte_lc_edrx_req(false);
+		if (ret < 0) {
+			LOG_ERR("EDRX request error %d", ret);
+		}
+	}
+
 	ret = lte_lc_psm_req(true);
 	if (ret < 0) {
 		LOG_ERR("lte_lc_psm_req, error: (%d)", ret);
@@ -525,10 +535,6 @@ void main(void)
 #endif
 
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_FIRMWARE_UPDATE_OBJ_SUPPORT)
-	ret = fota_settings_init();
-	if (ret < 0 && ret != -EALREADY) {
-		LOG_WRN("Unable to init settings (%d)", ret);
-	}
 	/* Modem FW update needs to be verified before modem is used. */
 	lwm2m_verify_modem_fw_update();
 #endif
@@ -587,13 +593,6 @@ void main(void)
 	initialise_gnss();
 #endif
 
-#if defined(CONFIG_LWM2M_CLIENT_UTILS_CONN_MON_OBJ_SUPPORT)
-	ret = lwm2m_update_connmon();
-	if (ret < 0) {
-		LOG_ERR("Registering rsrp handler failed (%d)", ret);
-	}
-#endif
-
 #ifdef CONFIG_SENSOR_MODULE
 	ret = sensor_module_init();
 	if (ret) {
@@ -604,6 +603,13 @@ void main(void)
 #if defined(CONFIG_LWM2M_CLIENT_UTILS_SIGNAL_MEAS_INFO_OBJ_SUPPORT)
 	k_work_init_delayable(&ncell_meas_work, ncell_meas_work_handler);
 	k_work_schedule(&ncell_meas_work, K_SECONDS(1));
+#endif
+#if defined(CONFIG_LWM2M_CLIENT_UTILS_VISIBLE_WIFI_AP_OBJ_SUPPORT)
+	k_work_init_delayable(&ground_fix_work, ground_fix_work_handler);
+	k_work_schedule(&ground_fix_work, K_SECONDS(60));
+#if defined(CONFIG_LWM2M_CLIENT_UTILS_WIFI_AP_SCANNER)
+	lwm2m_wifi_request_scan();
+#endif
 #endif
 #if defined(CONFIG_APP_LWM2M_CONFORMANCE_TESTING)
 	k_work_init_delayable(&send_periodical_work, send_periodically_work_handler);

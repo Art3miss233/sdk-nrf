@@ -24,6 +24,8 @@ config BT_LL_SOFTDEVICE
 	select BT_CTLR_ADV_EXT_SUPPORT
 	select BT_CTLR_ADV_PERIODIC_SUPPORT
 	select BT_CTLR_SYNC_PERIODIC_SUPPORT
+	select BT_CTLR_SYNC_TRANSFER_SENDER_SUPPORT
+	select BT_CTLR_SYNC_TRANSFER_RECEIVER_SUPPORT
 	select BT_CTLR_PHY_2M_SUPPORT if HAS_HW_NRF_RADIO_BLE_2M
 	select BT_CTLR_PHY_CODED_SUPPORT if HAS_HW_NRF_RADIO_BLE_CODED
 	select BT_HAS_HCI_VS
@@ -62,7 +64,7 @@ config BT_RX_STACK_SIZE
 	int
 	depends on BT_HCI_HOST || BT_RECV_BLOCKING
 	default 512 if BT_HCI_RAW
-	default 2048 if BT_MESH
+	default 2400 if BT_MESH
 	default 2200 if BT_SETTINGS
 	default 1536 if BT_SMP
 	default 1024
@@ -228,6 +230,12 @@ config BT_LL_SOFTDEVICE_MULTIROLE
 
 endchoice
 
+config BT_SDC_ADDITIONAL_MEMORY
+	int "Allocates additional memory to the SDC memory pool"
+	default 0
+	help
+	  This is for testing and internal use only.
+
 if BT_CTLR_ECDH
 choice BT_CTLR_ECDH_LIB
 	prompt "SoftDevice Controller ECDH library"
@@ -292,5 +300,28 @@ config BT_CTLR_LE_POWER_CONTROL
 	  Enable support for LE Power Control feature that defined in the Bluetooth
 	  Core specification, Version 5.3 | Vol 6, Part B, Section 4.6.31.
 
+config BT_UNINIT_MPSL_ON_DISABLE
+	bool "Uninitializes MPSL on BT disable"
+	depends on MPSL_DYNAMIC_INTERRUPTS
+	help
+	  This option unitializes MPSL on BT disable. HCI driver close calls
+	  mpsl_lib_uninit, which releases all peripherals and allows the user to
+	  override any interrupt handlers used by MPSL.
+
+config BT_CTLR_SYNC_TRANSFER_SENDER
+	bool "Periodic Advertising Sync Transfer - Sender [EXPERIMENTAL]"
+	select EXPERIMENTAL
+	help
+	  Enable support for sending Periodic Advertising Sync Transfer as
+	  defined in the Bluetooth Core Specification, Version 5.3 | Vol 6,
+	  Part B, Section 4.6.23.
+
+config BT_CTLR_SYNC_TRANSFER_RECEIVER
+	bool "Periodic Advertising Sync Transfer - Receiver [EXPERIMENTAL]"
+	select EXPERIMENTAL
+	help
+	  Enable support for receiving Periodic Advertising Sync Transfer as
+	  defined in the Bluetooth Core Specification, Version 5.3 | Vol 6,
+	  Part B, Section 4.6.24.
 endmenu
 endif  # BT_LL_SOFTDEVICE

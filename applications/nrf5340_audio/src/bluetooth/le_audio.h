@@ -127,6 +127,22 @@ struct le_audio_evt {
 typedef void (*le_audio_receive_cb)(const uint8_t *const data, size_t size, bool bad_frame,
 				    uint32_t sdu_ref);
 
+enum le_audio_user_defined_action {
+	LE_AUDIO_USER_DEFINED_ACTION_1,
+	LE_AUDIO_USER_DEFINED_ACTION_2,
+	LE_AUDIO_USER_DEFINED_ACTION_NUM
+};
+
+/**
+ * @brief Generic function for a user defined button press
+ *
+ * @param action	User defined action
+ *
+ * @return	0 for success,
+ *		error otherwise
+ */
+int le_audio_user_defined_button_press(enum le_audio_user_defined_action action);
+
 /**
  * @brief Get configuration for audio stream
  *
@@ -167,18 +183,12 @@ int le_audio_volume_down(void);
 int le_audio_volume_mute(void);
 
 /**
- * @brief	Resume playing Bluetooth LE Audio stream
+ * @brief	Either resume or pause the Bluetooth LE Audio stream,
+ *              depending on the current state of the stream
  *
  * @return	0 for success, error otherwise
  */
-int le_audio_play(void);
-
-/**
- * @brief	Pause Bluetooth LE Audio stream
- *
- * @return	0 for success, error otherwise
- */
-int le_audio_pause(void);
+int le_audio_play_pause(void);
 
 /**
  * @brief Send Bluetooth LE Audio data

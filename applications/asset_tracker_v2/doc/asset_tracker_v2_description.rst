@@ -66,7 +66,7 @@ To set up a cloud service to work with the application firmware, complete the st
   This step retrieves a *security tag* and *ID scope* that will be needed during the configuration of the firmware.
   Make sure to follow the steps documented in the :ref:`dps_config` section to enable Device Provisioning Service (DPS).
 
-* AVSystem's LwM2M Coiote Device Management - :ref:`server_setup_lwm2m`.
+* AVSystem's LwM2M Coiote Device Management - :ref:`server_setup_lwm2m_client`.
   No additional configuration is needed if the server is set up according to the linked documentation.
 
 You can also use the nRF Asset Tracker project that provides an example cloud implementation for multiple cloud providers.
@@ -103,6 +103,7 @@ Following are the available configuration files:
 
 * :file:`prj.conf` - Configuration file common for ``thingy91_nrf9160_ns`` and ``nrf9160dk_nrf9160_ns`` build targets.
 * :file:`prj_qemu_x86.conf` - Configuration file common for ``qemu_x86`` build target.
+* :file:`prj_native_posix.conf` - Configuration file common for ``native_posix`` build target.
 * :file:`boards/thingy91_nrf9160_ns.conf` - Configuration file specific for Thingy:91. This file is automatically merged with the :file:`prj.conf` file when you build for the ``thingy91_nrf9160_ns`` build target.
 * :file:`boards/nrf9160dk_nrf9160_ns.conf` - Configuration file specific for nRF9160 DK. This file is automatically merged with the :file:`prj.conf` file when you build for the ``nrf9160dk_nrf9160_ns`` build target.
 * :file:`boards/<BOARD>/led_state_def.h` - Header file that describes the LED behavior of the CAF LEDs module.
@@ -113,10 +114,16 @@ Overlay configurations files that enable specific features:
 * :file:`overlay-azure.conf` - Configuration file that enables communication with Azure IoT Hub.
 * :file:`overlay-lwm2m.conf` - Configuration file that enables communication with AVSystem's Coiote IoT Device Management.
 * :file:`overlay-pgps.conf` - Configuration file that enables P-GPS.
+* :file:`overlay-nrf7002ek-wifi-scan-only.conf` - Configuration file that enables Wi-Fi scanning with nRF7002 EK.
 * :file:`overlay-low-power.conf` - Configuration file that achieves the lowest power consumption by disabling features that consume extra power, such as LED control and logging.
 * :file:`overlay-debug.conf` - Configuration file that adds additional verbose logging capabilities and enables the debug module.
 * :file:`overlay-memfault.conf` - Configuration file that enables `Memfault`_.
 * :file:`overlay-carrier.conf` - Configuration file that adds |NCS| :ref:`liblwm2m_carrier_readme` support. See :ref:`atv2_lwm2m_carrier_support` for more information.
+* :file:`overlay-full_modem_fota.conf` - Configuration file that enables full modem FOTA.
+
+Custom DTC overlay file for enabling a specific feature:
+
+* :file:`rf9160dk_with_nrf7002ek.overlay` - Configuration file that enables Wi-Fi scanning with nRF7002 EK.
 
 Multiple overlay files can be included to enable multiple features at the same time.
 
@@ -125,8 +132,9 @@ Multiple overlay files can be included to enable multiple features at the same t
    Generally, Kconfig overlays have an ``overlay-`` prefix and a :file:`.conf` extension.
    Board-specific configuration files are placed in the :file:`boards` folder and are named as :file:`<BOARD>.conf`.
    DTS overlay files are named the same as the build target and use the file extension :file:`.overlay`.
-   They are placed in the :file:`boards` folder.
-   When the DTS overlay filename matches the build target, the overlay is automatically chosen and applied by the build system.
+   When they are placed in the :file:`boards` folder and the DTS overlay filename matches the build target,
+   the build system automatically selects and applies the overlay.
+   You can give the custom DTS overlay files as a compiler option ``-DDTC_OVERLAY_FILE=<dtc_filename>.overlay``.
 
 Optional library configurations
 ===============================
@@ -179,13 +187,13 @@ After programming the application and all the prerequisites to your development 
 #. Observe that data is sampled periodically and sent to the cloud::
 
    <inf> app_event_manager: APP_EVT_DATA_GET_ALL
-   <inf> app_event_manager: APP_EVT_DATA_GET - Requested data types (MOD_DYN, BAT, ENV, GNSS)
-   <inf> app_event_manager: GNSS_EVT_ACTIVE
+   <inf> app_event_manager: APP_EVT_DATA_GET - Requested data types (MOD_DYN, BAT, ENV, LOCATION)
+   <inf> app_event_manager: LOCATION_MODULE_EVT_ACTIVE
    <inf> app_event_manager: SENSOR_EVT_ENVIRONMENTAL_NOT_SUPPORTED
    <inf> app_event_manager: MODEM_EVT_MODEM_DYNAMIC_DATA_NOT_READY
    <inf> app_event_manager: MODEM_EVT_BATTERY_DATA_READY
-   <inf> app_event_manager: GNSS_EVT_INACTIVE
-   <inf> app_event_manager: GNSS_EVT_DATA_READY
+   <inf> app_event_manager: LOCATION_MODULE_EVT_INACTIVE
+   <inf> app_event_manager: LOCATION_MODULE_EVT_GNSS_DATA_READY
    <inf> app_event_manager: DATA_EVT_DATA_READY
    <inf> app_event_manager: DATA_EVT_DATA_SEND_BATCH
    <inf> app_event_manager: CLOUD_EVT_DATA_SEND_QOS
