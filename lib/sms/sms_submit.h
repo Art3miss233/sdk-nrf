@@ -20,6 +20,6 @@
  */
 int sms_submit_send(const char *number, const char *text);
 
-int sms_submit_send_data(const char *number, const uint8_t *data, uint8_t data_len, const char *udh_str);
+int sms_submit_send_data(const char *number, const uint8_t *data, uint16_t data_len, const char *udh_str);
 
 #endif

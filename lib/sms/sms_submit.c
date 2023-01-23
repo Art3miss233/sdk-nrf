@@ -129,7 +129,7 @@ static void sms_submit_print_error(int err)
  * @param[in] encoded_number Number in semi-octet representation for SMS-SUBMIT message.
  * @param[in] encoded_number_size Number of characters in number (encoded_number).
  * @param[in] encoded_number_size_octets Number of octets in number (encoded_number).
- * @param[in] encoded_data Encoded User-Data in bytes.
+ * @param[in] encoded Encoded User-Data in bytes.
  * @param[in] encoded_data_size_octets Encoded User-Data size in octets.
  * @param[in] encoded_data_size_septets Encoded User-Data size in septets.
  * @param[in] message_ref TP-Message-Reference field in SMS-SUBMIT message.
@@ -201,9 +201,6 @@ static int sms_submit_encode(
 	}
 	send_buf[ud_start_index + encoded_data_size_octets * 2] = '\x1a';
 	send_buf[ud_start_index + encoded_data_size_octets * 2 + 1] = '\0';
-
-	printk("Sending encoded SMS data (length=%d):\n", msg_size);
-	printk("%s\n", send_buf);
 
 	err = nrf_modem_at_printf(send_buf);
 	if (err) {
@@ -393,7 +390,7 @@ int sms_submit_send(const char *number, const char *text)
 
 static int sms_submit_concat_data(
 	const uint8_t *data,
-	uint8_t data_size,
+	uint16_t data_size,
 	uint8_t *encoded_number,
 	uint8_t encoded_number_size,
 	uint8_t encoded_number_size_octets,
@@ -412,9 +409,9 @@ static int sms_submit_concat_data(
 	static uint8_t message_ref = 1;
 	uint8_t concat_seq_number = 0;
 
-	uint8_t data_encoded_size = 0;
-	int data_part_size;
-	uint8_t data_size_remaining = data_size;
+	uint16_t data_encoded_size = 0;
+	uint8_t data_part_size;
+	uint16_t data_size_remaining = data_size;
 
 	/* More message parts are created until entire input text is encoded into messages */
 	while (data_size_remaining) {
@@ -467,14 +464,14 @@ static int sms_submit_concat_data(
 int sms_submit_send_data(
 	const char *number,
 	const uint8_t *data,
-	const uint8_t data_len,
+	const uint16_t data_len,
 	const char *udh_str)
 {
 	int err;
 	uint8_t encoded_number[SMS_MAX_ADDRESS_LEN_CHARS + 1];
 	uint8_t encoded_number_size;
 	uint8_t encoded_number_size_octets = SMS_MAX_ADDRESS_LEN_CHARS + 1;
-	uint8_t encoded_data_size_octets = data_len;
+	uint16_t encoded_data_size_octets = data_len;
 	uint8_t concat_msg_count = 0;
 
 	if (number == NULL) {

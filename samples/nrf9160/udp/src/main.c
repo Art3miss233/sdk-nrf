@@ -12,38 +12,13 @@
 #include <string.h>
 
 #define UDP_IP_HEADER_SIZE 28
-#define SMS_SEND_NUMBER "580016538943"
+#define SMS_SEND_NUMBER "580011600030"
 
 static struct pollfd client;
 static int client_fd;
 static struct sockaddr_storage host_addr;
-static struct k_work_delayable server_transmission_work;
 
 K_SEM_DEFINE(lte_connected, 0, 1);
-
-static void server_transmission_work_fn(struct k_work *work)
-{
-	int err;
-	char buffer[CONFIG_UDP_DATA_UPLOAD_SIZE_BYTES] = {"\0"};
-
-	printk("Transmitting UDP/IP payload of %d bytes to the ",
-	       CONFIG_UDP_DATA_UPLOAD_SIZE_BYTES + UDP_IP_HEADER_SIZE);
-	printk("IP address %s, port number %d\n",
-	       CONFIG_UDP_SERVER_ADDRESS_STATIC,
-	       CONFIG_UDP_SERVER_PORT);
-
-	err = send(client.fd, buffer, sizeof(buffer), 0);
-	if (err < 0) {
-		printk("Failed to transmit UDP packet, %d\n", errno);
-		return;
-	}
-}
-
-static void work_init(void)
-{
-	k_work_init_delayable(&server_transmission_work,
-			      server_transmission_work_fn);
-}
 
 #if defined(CONFIG_NRF_MODEM_LIB)
 static void lte_handler(const struct lte_lc_evt *const evt)
@@ -138,7 +113,6 @@ static int server_init(void)
 	inet_pton(AF_INET, CONFIG_UDP_SERVER_ADDRESS_STATIC,
 		  &server4->sin_addr);
 
-
 	int err;
 
 	client_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -168,9 +142,6 @@ error:
 
 static void sms_callback(struct sms_data *const data, void *context)
 {
-	int err;
-
-	printk("Sms callback\n");
 	if (data == NULL) {
 		printk("%s with NULL data\n", __func__);
 		return;
@@ -186,38 +157,44 @@ static void sms_callback(struct sms_data *const data, void *context)
 		return;
 	}
 
-
-	static int concat_msg_len = 0;
-	static uint8_t recv_buffer[1024];
+	int err = 0;
+	static uint16_t concat_msg_len = 0;
+	static uint8_t concat_buffer[CONFIG_NRF_COAP_MESSAGE_DATA_MAX_SIZE + 100];
+	static uint8_t coap_data[CONFIG_NRF_COAP_MESSAGE_DATA_MAX_SIZE + 100];
+	static uint16_t coap_data_size = 0;
 
 	if (data->header.deliver.concatenated.present) {
-		memcpy(&recv_buffer[concat_msg_len], data->payload, data->payload_len);
+		memcpy(&concat_buffer[concat_msg_len], data->payload, data->payload_len);
 		concat_msg_len += data->payload_len;
-
 		if (data->header.deliver.concatenated.seq_number ==
 			data->header.deliver.concatenated.total_msgs) {
-			printk("Sending udp concat packet: \n");
-			err = send(client_fd, recv_buffer, concat_msg_len, 0);
+
+			coap_data_size = concat_msg_len - 6;
+			memcpy(coap_data, &concat_buffer[6], coap_data_size);
+
+			err = send(client_fd, coap_data, coap_data_size, 0);
 
 			if (err < 0) {
 				printk("Failed to transmit UDP concat packet, %d\n", errno);
 				concat_msg_len = 0;
 				return;
 			}
-			printk("Sent %d/%d\n", err, concat_msg_len);
+
+			printk("Sent UDP package: %d/%d\n", err, coap_data_size);
 			concat_msg_len = 0;
 		}
 	} else {
-		printk("Sending udp packet: \n");
-		err = send(client_fd, data->payload, data->payload_len, 0);
+		coap_data_size = data->payload_len - 6;
+		memcpy(coap_data, &data->payload[6], coap_data_size);
+
+		err = send(client_fd, coap_data, coap_data_size, 0);
 
 		if (err < 0) {
 			printk("Failed to transmit UDP packet, %d\n", errno);
 			return;
 		}
-		printk("Sent %d/%d\n", err, data->payload_len);
-		// sms_send_data(SMS_SEND_NUMBER, data->payload, data->payload_len);
-		// k_work_schedule(&server_transmission_work, K_NO_WAIT);
+		printk("Sent UDP package: %d/%d\n", err, coap_data_size);
+
 	}
 }
 
@@ -234,16 +211,40 @@ static int sms_init(void)
 
 static int poll_in_handler(void)
 {
-	static uint8_t recv_buffer[1024];
-	printk("Starting recv at sockfd %d\n", client.fd);
-	int len = recv(client.fd, recv_buffer, sizeof(recv_buffer), 0);
-	printk("Ending recv\n");
+	static uint8_t coap_buffer[CONFIG_NRF_COAP_MESSAGE_DATA_MAX_SIZE + 100];
+	uint16_t len = recv(client.fd, coap_buffer, sizeof(coap_buffer), 0);
+
 	if (len < 0) {
 		printk("Received failed\n");
 		return -ENOMSG;
 	}
 
-	return sms_send_data(SMS_SEND_NUMBER, recv_buffer, len);
+	printk("Received CoAP package from server\n");
+
+	// 01 - Push ID
+	// 06 - PDU type: push
+	// 03 - Header length
+	// C4 - Content type code: application/vnd.syncml.notification
+	// AF - WAP app ID
+	// 9A - URN ID - x-wap-application:lwm2m.dm
+	uint8_t wsp[] =  {
+		0x01, 0x06, 0x03, 0xC4, 0xAF, 0x9A
+	};
+
+	uint8_t sms_data[len + sizeof(wsp)];
+	uint16_t sms_data_len = sizeof(sms_data);
+
+	memcpy(sms_data, wsp, sizeof(wsp));
+	memcpy(sms_data + 6, coap_buffer, len);
+
+	// 06 - UDHL: length
+	// 05 - IEID: 16-bit application port addressing
+	// 04 - Information Element Data length
+	// 0B84 - Destination port: 2948
+	// 23F0 - Originating port
+	char udh_str[] = "0605040B8423F0";
+
+	return sms_send_data(SMS_SEND_NUMBER, sms_data, sms_data_len, udh_str);
 }
 
 static bool poll_succeed(void)
@@ -253,15 +254,10 @@ static bool poll_succeed(void)
 	printk("Poll finished\n");
 
 	if (ret == 0) {
-		// Timeout
 		printk("Timeout\n");
 		return true;
 	} else if (ret < 0) {
 		printk("Error in poll\n");
-	}
-
-	if (client.revents & POLLERR) {
-		printk("Pollerr\n");
 	}
 
 	if (client.revents & POLLIN) {
@@ -280,8 +276,6 @@ void main(void)
 
 	printk("Gateway sample has started\n");
 
-	work_init();
-
 #if defined(CONFIG_NRF_MODEM_LIB)
 	modem_init();
 	modem_connect();
@@ -297,7 +291,7 @@ void main(void)
 
 	err = sms_init();
 	if (err) {
-		printk("Not able to initialize sms listener");
+		printk("Not able to initialize SMS listener");
 		goto err;
 	}
 
